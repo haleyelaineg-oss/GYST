@@ -1529,14 +1529,13 @@ async function startSession(session) {
   if (session && session.user) {
     currentUser = session.user;
     document.getElementById('authUserEmail').textContent = session.user.email;
-    try {
-      await loadAllData();
-    } catch(err) {
-      console.error('[GYST] loadAllData failed:', err);
-      // Show the app anyway with empty data rather than staying stuck
-    }
     showApp();
     renderAll();
+    loadAllData().then(function() {
+      renderAll();
+    }).catch(function(err) {
+      console.error('[GYST] loadAllData failed:', err);
+    });
   } else {
     showLogin();
   }
