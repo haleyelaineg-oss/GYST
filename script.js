@@ -89,13 +89,23 @@ function dbInboxToLocal(row) {
 // ── DATA LOADING ──────────────────────────────────────────────────────
 
 async function loadAllData() {
-  var results = await Promise.all([
-    sb.from('tasks').select('*').order('created_at', {ascending: false}),
-    sb.from('projects').select('*').order('created_at', {ascending: true}),
-    sb.from('inbox').select('*').order('created_at', {ascending: true}),
-    sb.from('labels').select('name').order('name'),
-    sb.from('locations').select('name').order('name'),
+  // Supabase free-tier projects pause after inactivity and can take 20-30s to wake.
+  // Race the queries against a 30s timeout so we never hang forever.
+  var wakeTimeout = new Promise(function(_, reject) {
+    setTimeout(function() { reject(new Error('DB timeout — Supabase project may still be waking up')); }, 30000);
+  });
+
+  var results = await Promise.race([
+    Promise.all([
+      sb.from('tasks').select('*').order('created_at', {ascending: false}),
+      sb.from('projects').select('*').order('created_at', {ascending: true}),
+      sb.from('inbox').select('*').order('created_at', {ascending: true}),
+      sb.from('labels').select('name').order('name'),
+      sb.from('locations').select('name').order('name'),
+    ]),
+    wakeTimeout,
   ]);
+
   S.tasks     = (results[0].data || []).map(dbTaskToLocal);
   S.projects  = (results[1].data || []).map(dbProjToLocal);
   S.inbox     = (results[2].data || []).map(dbInboxToLocal);
@@ -1499,52 +1509,59 @@ document.addEventListener('keydown', function(e) {
 
 // ── INIT ──────────────────────────────────────────────────────────────
 
-// Handle auth changes AFTER initial load (sign in / sign out)
+// Prevent double-initialization when both getSession() and onAuthStateChange fire
+var _sessionHandled = false;
+
+async function startSession(session) {
+  if (_sessionHandled) { console.log('[GYST] session already handled, skipping'); return; }
+  _sessionHandled = true;
+
+  if (session && session.user) {
+    currentUser = session.user;
+    document.getElementById('authUserEmail').textContent = session.user.email;
+    try {
+      await loadAllData();
+    } catch(err) {
+      console.error('[GYST] loadAllData failed:', err);
+      // Show the app anyway with empty data rather than staying stuck
+    }
+    showApp();
+    renderAll();
+  } else {
+    showLogin();
+  }
+}
+
 sb.auth.onAuthStateChange(async function(event, session) {
   console.log('[GYST] onAuthStateChange:', event);
   if (event === 'SIGNED_IN') {
-    currentUser = session.user;
-    document.getElementById('authUserEmail').textContent = session.user.email;
-    S.tasks = []; S.inbox = []; S.projects = []; S.labels = []; S.locations = [];
-    try { await loadAllData(); } catch(err) { console.error('[GYST] loadAllData failed:', err); }
-    showApp();
-    renderAll();
+    await startSession(session);
   } else if (event === 'SIGNED_OUT') {
+    _sessionHandled = false;
     currentUser = null;
     S.tasks = []; S.inbox = []; S.projects = []; S.labels = []; S.locations = [];
     showLogin();
   }
 });
 
-// Check for an existing session on page load
-(async function() {
-  console.log('[GYST] checking session…');
-  try {
-    var res = await sb.auth.getSession();
-    console.log('[GYST] getSession result:', res);
-    var session = res.data && res.data.session;
-    if (session && session.user) {
-      currentUser = session.user;
-      document.getElementById('authUserEmail').textContent = session.user.email;
-      try { await loadAllData(); } catch(err) { console.error('[GYST] loadAllData failed:', err); }
-      showApp();
-      renderAll();
-    } else {
-      showLogin();
-    }
-  } catch(err) {
-    console.error('[GYST] getSession threw:', err);
-    showLogin();
-  }
-})();
+// Initial session check on page load
+console.log('[GYST] checking session…');
+sb.auth.getSession().then(async function(res) {
+  console.log('[GYST] getSession result:', res.data && res.data.session ? 'has session' : 'no session');
+  await startSession(res.data && res.data.session ? res.data.session : null);
+}).catch(function(err) {
+  console.error('[GYST] getSession threw:', err);
+  showLogin();
+});
 
-// Safety valve — if still on loading screen after 8s, drop to login
+// Safety: update loading message after 10s so user knows what's happening
 setTimeout(function() {
   if (document.getElementById('loadingScreen').style.display !== 'none') {
-    console.warn('[GYST] still loading after 8s — forcing login screen');
-    showLogin();
+    console.warn('[GYST] still loading after 10s — Supabase project may be waking up');
+    var tagline = document.querySelector('#loadingScreen .logo-tagline');
+    if (tagline) tagline.textContent = 'Waking up… (free tier can take ~30s)';
   }
-}, 8000);
+}, 10000);
 
 setInterval(function() {
   if (currentUser) renderAll();
