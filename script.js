@@ -118,6 +118,8 @@ async function loadAllData() {
 // so the UI stays instant. Errors are logged to the console.
 
 async function dbUpsertTask(task) {
+  if (!currentUser) { console.error('[GYST] dbUpsertTask: no currentUser'); return; }
+  console.log('[GYST] saving task…', task.id, 'user:', currentUser.id);
   var res = await sb.from('tasks').upsert({
     id:       task.id,
     user_id:  currentUser.id,
@@ -128,8 +130,9 @@ async function dbUpsertTask(task) {
     done:     task.done,
     labels:   task.labels   || [],
     location: task.location || null,
-  });
-  if (res.error) console.error('Save task:', res.error);
+  }, { onConflict: 'id' });
+  if (res.error) console.error('[GYST] Save task error:', res.error);
+  else console.log('[GYST] task saved ok');
 }
 
 async function dbDeleteTask(id) {
