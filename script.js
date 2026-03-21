@@ -1499,21 +1499,33 @@ document.addEventListener('keydown', function(e) {
 
 // ── INIT ──────────────────────────────────────────────────────────────
 
-sb.auth.onAuthStateChange(async function(_event, session) {
+// Handle auth changes AFTER initial load (sign in / sign out)
+sb.auth.onAuthStateChange(async function(event, session) {
+  if (event === 'SIGNED_IN') {
+    currentUser = session.user;
+    document.getElementById('authUserEmail').textContent = session.user.email;
+    S.tasks = []; S.inbox = []; S.projects = []; S.labels = []; S.locations = [];
+    try { await loadAllData(); } catch(err) { console.error('loadAllData failed:', err); }
+    showApp();
+    renderAll();
+  } else if (event === 'SIGNED_OUT') {
+    currentUser = null;
+    S.tasks = []; S.inbox = []; S.projects = []; S.labels = []; S.locations = [];
+    showLogin();
+  }
+  // INITIAL_SESSION and TOKEN_REFRESHED are handled by getSession() below
+});
+
+// Check for an existing session on page load — more reliable than onAuthStateChange for refreshes
+sb.auth.getSession().then(async function(res) {
+  var session = res.data && res.data.session;
   if (session && session.user) {
     currentUser = session.user;
     document.getElementById('authUserEmail').textContent = session.user.email;
-    showLoading();
-    try {
-      await loadAllData();
-    } catch(err) {
-      console.error('loadAllData failed:', err);
-    }
+    try { await loadAllData(); } catch(err) { console.error('loadAllData failed:', err); }
     showApp();
     renderAll();
   } else {
-    currentUser = null;
-    S.tasks = []; S.inbox = []; S.projects = []; S.labels = []; S.locations = [];
     showLogin();
   }
 });
