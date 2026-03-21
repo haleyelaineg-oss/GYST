@@ -1501,11 +1501,12 @@ document.addEventListener('keydown', function(e) {
 
 // Handle auth changes AFTER initial load (sign in / sign out)
 sb.auth.onAuthStateChange(async function(event, session) {
+  console.log('[GYST] onAuthStateChange:', event);
   if (event === 'SIGNED_IN') {
     currentUser = session.user;
     document.getElementById('authUserEmail').textContent = session.user.email;
     S.tasks = []; S.inbox = []; S.projects = []; S.labels = []; S.locations = [];
-    try { await loadAllData(); } catch(err) { console.error('loadAllData failed:', err); }
+    try { await loadAllData(); } catch(err) { console.error('[GYST] loadAllData failed:', err); }
     showApp();
     renderAll();
   } else if (event === 'SIGNED_OUT') {
@@ -1513,22 +1514,37 @@ sb.auth.onAuthStateChange(async function(event, session) {
     S.tasks = []; S.inbox = []; S.projects = []; S.labels = []; S.locations = [];
     showLogin();
   }
-  // INITIAL_SESSION and TOKEN_REFRESHED are handled by getSession() below
 });
 
-// Check for an existing session on page load — more reliable than onAuthStateChange for refreshes
-sb.auth.getSession().then(async function(res) {
-  var session = res.data && res.data.session;
-  if (session && session.user) {
-    currentUser = session.user;
-    document.getElementById('authUserEmail').textContent = session.user.email;
-    try { await loadAllData(); } catch(err) { console.error('loadAllData failed:', err); }
-    showApp();
-    renderAll();
-  } else {
+// Check for an existing session on page load
+(async function() {
+  console.log('[GYST] checking session…');
+  try {
+    var res = await sb.auth.getSession();
+    console.log('[GYST] getSession result:', res);
+    var session = res.data && res.data.session;
+    if (session && session.user) {
+      currentUser = session.user;
+      document.getElementById('authUserEmail').textContent = session.user.email;
+      try { await loadAllData(); } catch(err) { console.error('[GYST] loadAllData failed:', err); }
+      showApp();
+      renderAll();
+    } else {
+      showLogin();
+    }
+  } catch(err) {
+    console.error('[GYST] getSession threw:', err);
     showLogin();
   }
-});
+})();
+
+// Safety valve — if still on loading screen after 8s, drop to login
+setTimeout(function() {
+  if (document.getElementById('loadingScreen').style.display !== 'none') {
+    console.warn('[GYST] still loading after 8s — forcing login screen');
+    showLogin();
+  }
+}, 8000);
 
 setInterval(function() {
   if (currentUser) renderAll();
