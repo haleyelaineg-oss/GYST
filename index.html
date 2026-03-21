@@ -6,9 +6,119 @@
 <title>GYST — Get Your Shit Together</title>
 <link href="https://fonts.googleapis.com/css2?family=Jost:wght@200;300;400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
+<style>
+  /* ── AUTH SCREENS ─────────────────────────────────────────── */
+  .loading-screen,
+  .login-screen {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    z-index: 9999;
+  }
+  .loading-screen .logo {
+    text-align: center;
+    opacity: 0.5;
+  }
+  .login-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 40px;
+    width: 100%;
+    max-width: 380px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .login-logo {
+    text-align: center;
+    margin-bottom: 4px;
+  }
+  .login-logo .logo-word {
+    font-size: 30px;
+    font-weight: 800;
+    letter-spacing: 3px;
+  }
+  .login-logo .logo-tagline {
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    opacity: 0.4;
+    margin-top: 2px;
+  }
+  .auth-error {
+    color: #d94f4f;
+    font-size: 13px;
+    padding: 8px 12px;
+    background: rgba(217,79,79,0.1);
+    border-radius: 6px;
+    border: 1px solid rgba(217,79,79,0.2);
+  }
+  .auth-toggle {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-size: 12px;
+    cursor: pointer;
+    text-align: center;
+    padding: 4px;
+    font-family: inherit;
+  }
+  .auth-toggle:hover { color: var(--text); }
+  .auth-user-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .auth-user-email {
+    font-size: 11px;
+    color: var(--text-dim);
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+</style>
 </head>
 <body>
-<div class="app">
+
+<!-- LOADING SCREEN -->
+<div id="loadingScreen" class="loading-screen">
+  <div class="logo">
+    <div class="logo-word">GY<span>ST</span></div>
+    <div class="logo-tagline">Loading…</div>
+  </div>
+</div>
+
+<!-- LOGIN SCREEN -->
+<div id="loginScreen" class="login-screen" style="display:none">
+  <div class="login-box">
+    <div class="login-logo">
+      <div class="logo-word">GY<span>ST</span></div>
+      <div class="logo-tagline">Get Your Shit Together</div>
+    </div>
+    <h2 id="authTitle" style="margin:0;font-size:18px">Sign In</h2>
+    <div class="fg">
+      <label class="fl">Email</label>
+      <input class="fi" id="authEmail" type="email" placeholder="you@example.com" autocomplete="email"/>
+    </div>
+    <div class="fg">
+      <label class="fl">Password</label>
+      <input class="fi" id="authPassword" type="password" placeholder="••••••••"
+        autocomplete="current-password"
+        onkeydown="if(event.key==='Enter')authSubmit()"/>
+    </div>
+    <div id="authError" class="auth-error" style="display:none"></div>
+    <button class="btn-save" id="authSubmitBtn" onclick="authSubmit()">Sign In</button>
+    <button class="auth-toggle" id="authToggle" onclick="toggleAuthMode()">Don't have an account? Sign Up</button>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div class="app" id="appScreen" style="display:none">
   <header>
     <div class="logo">
       <div class="logo-word">GY<span>ST</span></div>
@@ -22,7 +132,11 @@
       </button>
       <button class="btn btn-secondary" onclick="openAddTask()">+ New Task</button>
       <button class="btn btn-secondary" onclick="openAddProject()">+ New Project</button>
-      <button class="btn-icon" onclick="openSettings()" title="Settings">⚙</button>
+      <div class="auth-user-row">
+        <span class="auth-user-email" id="authUserEmail"></span>
+        <button class="btn-icon" onclick="openSettings()" title="Settings">⚙</button>
+        <button class="btn-icon" onclick="logout()" title="Sign Out">⏻</button>
+      </div>
     </div>
   </header>
 
@@ -128,7 +242,8 @@
       <label class="fl">Due Date <span class="fl-opt">(optional — within 48hrs auto-escalates)</span></label>
       <input class="fi" id="tDue" type="date"/>
     </div>
-    <div class="fg">
+    <div class="fdiv" id="assignProjDivider"></div>
+    <div class="fg" id="assignProjWrap">
       <label class="fl">Assign to Project? <span class="fl-opt">(optional — converts to a step)</span></label>
       <select class="fsel" id="tProjAssign"><option value="">— Keep as standalone task —</option></select>
     </div>
@@ -304,6 +419,8 @@
     <div id="gystContent"></div>
   </div>
 </div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="script.js"></script>
 </body>
 </html>

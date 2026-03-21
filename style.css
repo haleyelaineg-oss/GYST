@@ -4,7 +4,7 @@
   --border:#d4e0ec; --border2:#c2d4e6;
   --text:#1e2d3d; --text-mid:#4a6480; --text-muted:#7a96b0; --text-dim:#a8bece;
   --accent:#4a80b0; --accent-lt:#dceaf5;
-  --red:#d94f4f; --red-bg:#fdf0f0; --red-bd:#f0c8c8;
+  --red:#c95555; --red-bg:#fdf0f0; --red-bd:#f6d1d1;
   --active:#4a80b0; --active-bg:#dceaf5; --active-bd:#b0cfe8;
   --todo:#6e9ec0; --todo-bg:#e6f1f8; --todo-bd:#c0d8ea;
   --errands:#7b9e87; --errands-bg:#eef5f0; --errands-bd:#b8d4c0;
@@ -111,7 +111,7 @@ kbd{background:var(--surface2);border:1px solid var(--border2);border-radius:4px
 .ac-check.chk{background:var(--accent);border-color:var(--accent)}
 .ac-check.chk::after{content:'checkmark';font-size:0;width:10px;height:6px;border-left:2px solid #fff;border-bottom:2px solid #fff;transform:rotate(-45deg) translate(1px,-1px);display:block}
 .ac-body{flex:1;min-width:0}
-.ac-title{font-size:14px;font-weight:500;color:var(--text);margin-bottom:4px;line-height:1.4}
+.ac-title{font-size:14px;font-weight:500;color:var(--text-mid);margin-bottom:4px;line-height:1.4}
 .ac-notes{font-size:12.5px;font-style:italic;color:var(--text-muted);margin-bottom:5px;line-height:1.4}
 .ac-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .proj-tag{font-size:11px;font-weight:600;padding:2px 9px;border-radius:100px;background:var(--accent-lt);color:var(--accent);border:1px solid rgba(74,128,176,.2)}

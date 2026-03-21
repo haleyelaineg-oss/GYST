@@ -13,34 +13,23 @@ const STATUS_COLORS = {
   errands:'#7b9e87', someday:'#92bcd0', onhold:'#6a7e92', waiting:'#8a9aaa',
 };
 
+// ── SUPABASE ──────────────────────────────────────────────────────────
+
+const { createClient } = supabase;
+const sb = createClient(
+  'https://rwtietnaxwacqktswizn.supabase.co',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ3dGlldG5heHdhY3FrdHN3aXpuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMTY3NDYsImV4cCI6MjA4OTY5Mjc0Nn0.i2-wtybjyGXurjPGcO_07fy7yqj0ezU7BVY4nt5a9t8'
+);
+let currentUser = null;
+
 // ── STATE ────────────────────────────────────────────────────────────
 
 let S = {
-  tasks:     JSON.parse(localStorage.getItem('gyst_v6_tasks')  || '[]'),
-  inbox:     JSON.parse(localStorage.getItem('gyst_v6_inbox')  || '[]'),
-  projects:  JSON.parse(localStorage.getItem('gyst_projs')  || JSON.stringify([
-    {id:'guardian', name:'Guardian Group', notes:'Safety consulting — Shield Program & onboarding',
-     completed:false, dueDate:null, projStatus:'active', labels:[], created:Date.now(),
-     steps:[
-       {id:'sg1',title:'Finalize Shield Program pricing tiers',done:false,dueDate:null,statusOverride:null,labels:[],location:null},
-       {id:'sg2',title:'Draft onboarding package outline',     done:false,dueDate:null,statusOverride:null,labels:[],location:null},
-       {id:'sg3',title:'Build fatality support protocol doc',  done:false,dueDate:null,statusOverride:null,labels:[],location:null},
-     ]},
-    {id:'ascend', name:'ASCEND', notes:'501(c)3 — aviation & skydiving career nonprofit',
-     completed:false, dueDate:null, projStatus:'active', labels:[], created:Date.now(),
-     steps:[
-       {id:'sa1',title:'Set up board structure and roles',    done:false,dueDate:null,statusOverride:null,labels:[],location:null},
-       {id:'sa2',title:'Update website with 501(c)3 status',  done:false,dueDate:null,statusOverride:null,labels:[],location:null},
-       {id:'sa3',title:'Draft first donor outreach email',    done:false,dueDate:null,statusOverride:null,labels:[],location:null},
-     ]},
-    {id:'personal', name:'Personal', notes:'',
-     completed:false, dueDate:null, projStatus:'active', labels:[], created:Date.now(),
-     steps:[
-       {id:'sp1',title:'Schedule credit-by-exam study sessions',done:false,dueDate:null,statusOverride:null,labels:[],location:null},
-     ]},
-  ])),
-  labels:    JSON.parse(localStorage.getItem('gyst_labels') || JSON.stringify(['Guardian Group','ASCEND','Personal'])),
-  locations: JSON.parse(localStorage.getItem('gyst_locs')   || '[]'),
+  tasks:     [],
+  inbox:     [],
+  projects:  [],
+  labels:    [],
+  locations: [],
   view: 'all',
   activeProjId: null,
   editTaskId: null,
@@ -49,25 +38,234 @@ let S = {
   editStepId: null,
   compProjId: null,
   gyst: {items:[], index:0},
-  // Temp picker state for current modal session
   tLabels: [], tLoc: [], pLabels: [], sLoc: [],
 };
 
-function persist() {
-  localStorage.setItem('gyst_v6_tasks',  JSON.stringify(S.tasks));
-  localStorage.setItem('gyst_v6_inbox',  JSON.stringify(S.inbox));
-  localStorage.setItem('gyst_projs',  JSON.stringify(S.projects));
-  localStorage.setItem('gyst_labels', JSON.stringify(S.labels));
-  localStorage.setItem('gyst_locs',   JSON.stringify(S.locations));
-}
+// no-op — replaced by targeted DB calls below
+function persist() {}
+
 function uid()  { return Date.now().toString(36) + Math.random().toString(36).slice(2); }
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// ── DB MAPPERS ────────────────────────────────────────────────────────
+
+function dbTaskToLocal(row) {
+  return {
+    id:       row.id,
+    title:    row.title,
+    status:   row.status,
+    notes:    row.notes    || '',
+    dueDate:  row.due_date || null,
+    labels:   row.labels   || [],
+    location: row.location || null,
+    done:     row.done,
+    created:  new Date(row.created_at).getTime(),
+  };
+}
+
+function dbProjToLocal(row) {
+  return {
+    id:         row.id,
+    name:       row.name,
+    notes:      row.notes      || '',
+    dueDate:    row.due_date   || null,
+    projStatus: row.proj_status,
+    completed:  row.completed,
+    labels:     row.labels     || [],
+    steps:      row.steps      || [],
+    created:    new Date(row.created_at).getTime(),
+  };
+}
+
+function dbInboxToLocal(row) {
+  return {
+    id:      row.id,
+    title:   row.title,
+    note:    row.note  || '',
+    created: new Date(row.created_at).getTime(),
+  };
+}
+
+// ── DATA LOADING ──────────────────────────────────────────────────────
+
+async function loadAllData() {
+  var results = await Promise.all([
+    sb.from('tasks').select('*').order('created_at', {ascending: false}),
+    sb.from('projects').select('*').order('created_at', {ascending: true}),
+    sb.from('inbox').select('*').order('created_at', {ascending: true}),
+    sb.from('labels').select('name').order('name'),
+    sb.from('locations').select('name').order('name'),
+  ]);
+  S.tasks     = (results[0].data || []).map(dbTaskToLocal);
+  S.projects  = (results[1].data || []).map(dbProjToLocal);
+  S.inbox     = (results[2].data || []).map(dbInboxToLocal);
+  S.labels    = (results[3].data || []).map(function(r){ return r.name; });
+  S.locations = (results[4].data || []).map(function(r){ return r.name; });
+}
+
+// ── DB WRITE HELPERS (fire-and-forget) ───────────────────────────────
+// These are called after we've already updated S in memory and re-rendered,
+// so the UI stays instant. Errors are logged to the console.
+
+async function dbUpsertTask(task) {
+  var res = await sb.from('tasks').upsert({
+    id:       task.id,
+    user_id:  currentUser.id,
+    title:    task.title,
+    notes:    task.notes    || null,
+    status:   task.status,
+    due_date: task.dueDate  || null,
+    done:     task.done,
+    labels:   task.labels   || [],
+    location: task.location || null,
+  });
+  if (res.error) console.error('Save task:', res.error);
+}
+
+async function dbDeleteTask(id) {
+  var res = await sb.from('tasks').delete().eq('id', id);
+  if (res.error) console.error('Delete task:', res.error);
+}
+
+async function dbUpsertProject(proj) {
+  var res = await sb.from('projects').upsert({
+    id:          proj.id,
+    user_id:     currentUser.id,
+    name:        proj.name,
+    notes:       proj.notes      || null,
+    proj_status: proj.projStatus || 'active',
+    due_date:    proj.dueDate    || null,
+    completed:   proj.completed,
+    labels:      proj.labels     || [],
+    steps:       proj.steps      || [],
+  });
+  if (res.error) console.error('Save project:', res.error);
+}
+
+async function dbDeleteProject(id) {
+  var res = await sb.from('projects').delete().eq('id', id);
+  if (res.error) console.error('Delete project:', res.error);
+}
+
+async function dbAddInboxItem(item) {
+  var res = await sb.from('inbox').insert({
+    id:      item.id,
+    user_id: currentUser.id,
+    title:   item.title,
+    note:    item.note || null,
+  });
+  if (res.error) console.error('Add inbox:', res.error);
+}
+
+async function dbClearInboxItems(ids) {
+  if (!ids || !ids.length) return;
+  var res = await sb.from('inbox').delete().in('id', ids);
+  if (res.error) console.error('Clear inbox:', res.error);
+}
+
+async function dbAddLabel(name) {
+  var res = await sb.from('labels').insert({ user_id: currentUser.id, name: name });
+  // 23505 = unique violation (label already exists) — safe to ignore
+  if (res.error && res.error.code !== '23505') console.error('Add label:', res.error);
+}
+
+async function dbDeleteLabel(name) {
+  var res = await sb.from('labels').delete().eq('user_id', currentUser.id).eq('name', name);
+  if (res.error) console.error('Delete label:', res.error);
+}
+
+async function dbAddLocation(name) {
+  var res = await sb.from('locations').insert({ user_id: currentUser.id, name: name });
+  if (res.error && res.error.code !== '23505') console.error('Add location:', res.error);
+}
+
+async function dbDeleteLocation(name) {
+  var res = await sb.from('locations').delete().eq('user_id', currentUser.id).eq('name', name);
+  if (res.error) console.error('Delete location:', res.error);
+}
+
+// ── AUTH ──────────────────────────────────────────────────────────────
+
+function showApp() {
+  document.getElementById('loadingScreen').style.display = 'none';
+  document.getElementById('loginScreen').style.display   = 'none';
+  document.getElementById('appScreen').style.display     = '';
+}
+
+function showLogin() {
+  document.getElementById('loadingScreen').style.display = 'none';
+  document.getElementById('appScreen').style.display     = 'none';
+  document.getElementById('loginScreen').style.display   = '';
+}
+
+function showLoading() {
+  document.getElementById('loginScreen').style.display   = 'none';
+  document.getElementById('appScreen').style.display     = 'none';
+  document.getElementById('loadingScreen').style.display = '';
+}
+
+var _authMode = 'signin';
+
+function toggleAuthMode() {
+  _authMode = _authMode === 'signin' ? 'signup' : 'signin';
+  var isSignIn = _authMode === 'signin';
+  document.getElementById('authTitle').textContent     = isSignIn ? 'Sign In' : 'Create Account';
+  document.getElementById('authSubmitBtn').textContent = isSignIn ? 'Sign In' : 'Create Account';
+  document.getElementById('authToggle').textContent    = isSignIn
+    ? "Don't have an account? Sign Up"
+    : 'Already have an account? Sign In';
+  document.getElementById('authError').style.display = 'none';
+}
+
+async function authSubmit() {
+  var email    = (document.getElementById('authEmail').value    || '').trim();
+  var password = (document.getElementById('authPassword').value || '').trim();
+  var errEl    = document.getElementById('authError');
+  var btn      = document.getElementById('authSubmitBtn');
+
+  if (!email || !password) {
+    errEl.textContent   = 'Please enter your email and password.';
+    errEl.style.display = '';
+    return;
+  }
+
+  btn.disabled    = true;
+  btn.textContent = _authMode === 'signin' ? 'Signing in…' : 'Creating account…';
+  errEl.style.display = 'none';
+
+  var result = _authMode === 'signin'
+    ? await sb.auth.signInWithPassword({ email: email, password: password })
+    : await sb.auth.signUp({ email: email, password: password });
+
+  btn.disabled    = false;
+  btn.textContent = _authMode === 'signin' ? 'Sign In' : 'Create Account';
+
+  if (result.error) {
+    errEl.textContent   = result.error.message;
+    errEl.style.display = '';
+    return;
+  }
+
+  // If signing up, Supabase may require email confirmation depending on settings.
+  // If email confirmation is disabled, onAuthStateChange fires immediately.
+  if (_authMode === 'signup' && result.data && !result.data.session) {
+    errEl.style.cssText = 'display:;color:var(--text);background:rgba(78,160,78,0.1);border-color:rgba(78,160,78,0.2)';
+    errEl.textContent   = 'Account created! You can sign in now.';
+    toggleAuthMode(); // switch back to sign-in
+  }
+}
+
+async function logout() {
+  await sb.auth.signOut();
+  S.tasks = []; S.inbox = []; S.projects = []; S.labels = []; S.locations = [];
+  currentUser = null;
+}
 
 // ── DUE DATE ─────────────────────────────────────────────────────────
 
 function within48(d) {
   if (!d) return false;
-  const diff = new Date(d+'T23:59:59') - new Date();
+  var diff = new Date(d+'T23:59:59') - new Date();
   return diff >= 0 && diff <= 172800000;
 }
 function overdue(d)  { return d ? new Date(d+'T23:59:59') < new Date() : false; }
@@ -76,7 +274,7 @@ function dueSoon(d)  { return within48(d) || overdue(d); }
 function fmtDue(d, cls) {
   cls = cls || 'ac-date';
   if (!d) return '';
-  const lbl = new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
+  var lbl = new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
   if (overdue(d))  return '<span class="'+cls+' soon">Overdue · '+lbl+'</span>';
   if (within48(d)) return '<span class="'+cls+' soon">Due '+lbl+'</span>';
   return '<span class="'+cls+'">Due '+lbl+'</span>';
@@ -203,7 +401,6 @@ function itemMatchesLocations(item) {
 function renderAll() { renderSidebar(); renderMain(); updateCaptureBadge(); }
 
 function renderSidebar() {
-  // View counts
   var tasksDone   = S.tasks.filter(function(t){ return !t.done; });
   var stepsDone   = S.projects.filter(function(p){ return !p.completed; }).reduce(function(n,p){
     return n + p.steps.filter(function(s){ return !s.done; }).length;
@@ -219,7 +416,6 @@ function renderSidebar() {
   if (cntProj) cntProj.textContent = projectCount || '';
   if (cntErr)  cntErr.textContent  = errandCount  || '';
 
-  // Project list
   var list = document.getElementById('projectList');
   if (list) {
     list.innerHTML = '';
@@ -244,9 +440,7 @@ function renderSidebar() {
     });
   }
 
-  // Label filter
   renderLabelFilter();
-  // Location filter
   renderLocFilter();
 }
 
@@ -424,7 +618,6 @@ function renderProjectsView(c) {
     return;
   }
 
-  var statusColors = {active:'var(--active)', someday:'var(--someday)', onhold:'var(--onhold)'};
   var groups = [
     {key:'active',    label:'Active',         color:'var(--active)',   list:projs.filter(function(p){ return !p.completed && (!p.projStatus || p.projStatus==='active'); })},
     {key:'someday',   label:'Someday / Maybe', color:'var(--someday)',  list:projs.filter(function(p){ return !p.completed && p.projStatus==='someday'; })},
@@ -564,13 +757,15 @@ function toggleTask(id) {
   var t = S.tasks.find(function(t){ return t.id === id; });
   if (!t) return;
   t.done = !t.done;
-  persist(); renderAll();
+  renderAll();
+  dbUpsertTask(t);
 }
 
 function delTask(id) {
   if (!confirm('Delete this task?')) return;
   S.tasks = S.tasks.filter(function(t){ return t.id !== id; });
-  persist(); renderAll();
+  renderAll();
+  dbDeleteTask(id);
 }
 
 function toggleStep(pid, sid) {
@@ -579,7 +774,7 @@ function toggleStep(pid, sid) {
   var step = proj.steps.find(function(s){ return s.id === sid; });
   if (!step) return;
   step.done = !step.done;
-  persist();
+  dbUpsertProject(proj);
   if (step.done && proj.steps.every(function(s){ return s.done; })) {
     S.compProjId = pid;
     document.getElementById('compSub').textContent = 'Every step in "'+proj.name+'" is complete.';
@@ -596,7 +791,8 @@ function addStep(pid) {
   var proj = S.projects.find(function(p){ return p.id === pid; });
   if (!proj) return;
   proj.steps.push({id:uid(), title:title, done:false, dueDate:null, statusOverride:null, labels:[], location:null});
-  persist(); renderAll();
+  renderAll();
+  dbUpsertProject(proj);
   setTimeout(function() {
     var ni = document.getElementById('asi-'+pid);
     if (ni) { ni.value = ''; ni.focus(); }
@@ -607,19 +803,21 @@ function delStep(pid, sid) {
   if (!confirm('Delete this step?')) return;
   var proj = S.projects.find(function(p){ return p.id === pid; });
   if (proj) proj.steps = proj.steps.filter(function(s){ return s.id !== sid; });
-  persist(); renderAll();
+  renderAll();
+  if (proj) dbUpsertProject(proj);
 }
 
 function delProj(pid) {
   if (!confirm('Delete this entire project and all its steps?')) return;
   S.projects = S.projects.filter(function(p){ return p.id !== pid; });
-  persist(); renderAll();
+  renderAll();
+  dbDeleteProject(pid);
 }
 
 function markProjComplete() {
   var proj = S.projects.find(function(p){ return p.id === S.compProjId; });
-  if (proj) proj.completed = true;
-  persist(); closeModal('compModal'); renderAll();
+  if (proj) { proj.completed = true; dbUpsertProject(proj); }
+  closeModal('compModal'); renderAll();
 }
 
 function addMoreSteps() {
@@ -636,14 +834,14 @@ function addMoreSteps() {
 
 // ── PICKERS ───────────────────────────────────────────────────────────
 
-function setPSel(rowId, attr, btn) {
+function setPSel(rowId, _attr, btn) {
   document.querySelectorAll('#'+rowId+' .pso').forEach(function(b){ b.classList.remove('sel'); });
   btn.classList.add('sel');
 }
 
-function getPSel(rowId, attr) {
+function getPSel(rowId, dataAttr) {
   var sel = document.querySelector('#'+rowId+' .pso.sel');
-  return sel ? sel.dataset[attr] : null;
+  return sel ? sel.dataset[dataAttr] : null;
 }
 
 function buildStatusGrid(selectedId) {
@@ -711,7 +909,11 @@ function quickAdd(type, ctx) {
   var val  = inp && inp.value.trim();
   if (!val) return;
   var pool = type === 'label' ? S.labels : S.locations;
-  if (pool.indexOf(val) === -1) { pool.push(val); persist(); }
+  if (pool.indexOf(val) === -1) {
+    pool.push(val);
+    if (type === 'label') dbAddLabel(val);
+    else dbAddLocation(val);
+  }
   var arr  = S[info.arr];
   if (arr.indexOf(val) === -1) arr.push(val);
   if (inp) inp.value = '';
@@ -737,10 +939,10 @@ function openAddTask(prefillTitle, prefillStatus) {
   S.editTaskId = null;
   S.editStepProjId = null; S.editStepId = null;
   document.getElementById('taskModalTitle').textContent = 'New Task';
-  var apw = document.getElementById('assignProjWrap');
-  var apdiv = apw && apw.previousElementSibling;
-  if (apw) apw.style.display = '';
-  if (apdiv && apdiv.classList && apdiv.classList.contains('fdiv')) apdiv.style.display = '';
+  var apw   = document.getElementById('assignProjWrap');
+  var apdiv = document.getElementById('assignProjDivider');
+  if (apw)   apw.style.display   = '';
+  if (apdiv) apdiv.style.display = '';
   document.getElementById('tTitle').value = prefillTitle;
   document.getElementById('tNotes').value = '';
   document.getElementById('tDue').value   = '';
@@ -759,15 +961,14 @@ function openEditTask(id) {
   if (!t) return;
   S.editTaskId = id;
   S.editStepProjId = null; S.editStepId = null;
-  var apw = document.getElementById('assignProjWrap');
-  var apdiv = apw && apw.previousElementSibling;
-  if (apw) apw.style.display = '';
-  if (apdiv && apdiv.classList && apdiv.classList.contains('fdiv')) apdiv.style.display = '';
+  var apw   = document.getElementById('assignProjWrap');
+  var apdiv = document.getElementById('assignProjDivider');
+  if (apw)   apw.style.display   = '';
+  if (apdiv) apdiv.style.display = '';
   document.getElementById('taskModalTitle').textContent = 'Edit Task';
   document.getElementById('tTitle').value = t.title;
   document.getElementById('tNotes').value = t.notes || '';
   document.getElementById('tDue').value   = t.dueDate || '';
-  // Show the effective status (including auto-escalation) so user sees why it's time-sensitive
   buildStatusGrid(effectiveTaskStatus(t));
   populateProjAssign();
   document.getElementById('tProjAssign').value = '';
@@ -780,7 +981,6 @@ function openEditTask(id) {
 }
 
 function saveTask() {
-  // If editing a step, route to saveStep
   if (!S.editTaskId && S.editStepProjId) { saveStep(); return; }
 
   var title = document.getElementById('tTitle').value.trim();
@@ -794,17 +994,28 @@ function saveTask() {
 
   if (projAssign) {
     var proj = S.projects.find(function(p){ return p.id === projAssign; });
-    if (proj) proj.steps.push({id:uid(), title:title, done:false, dueDate:dueDate, statusOverride:null, labels:labels, location:location});
-    if (S.editTaskId) S.tasks = S.tasks.filter(function(t){ return t.id !== S.editTaskId; });
+    if (proj) {
+      proj.steps.push({id:uid(), title:title, done:false, dueDate:dueDate, statusOverride:null, labels:labels, location:location});
+      dbUpsertProject(proj);
+    }
+    if (S.editTaskId) {
+      S.tasks = S.tasks.filter(function(t){ return t.id !== S.editTaskId; });
+      dbDeleteTask(S.editTaskId);
+    }
   } else {
     if (S.editTaskId) {
       var t = S.tasks.find(function(t){ return t.id === S.editTaskId; });
-      if (t) { t.title=title; t.status=status; t.notes=notes; t.dueDate=dueDate; t.labels=labels; t.location=location; }
+      if (t) {
+        t.title=title; t.status=status; t.notes=notes; t.dueDate=dueDate; t.labels=labels; t.location=location;
+        dbUpsertTask(t);
+      }
     } else {
-      S.tasks.unshift({id:uid(), title:title, status:status, notes:notes, dueDate:dueDate, labels:labels, location:location, done:false, created:Date.now()});
+      var newTask = {id:uid(), title:title, status:status, notes:notes, dueDate:dueDate, labels:labels, location:location, done:false, created:Date.now()};
+      S.tasks.unshift(newTask);
+      dbUpsertTask(newTask);
     }
   }
-  persist(); renderAll(); closeModal('taskModal');
+  renderAll(); closeModal('taskModal');
 }
 
 // ── PROJECT MODAL ─────────────────────────────────────────────────────
@@ -849,10 +1060,9 @@ function removeBuilderRow(i) {
 function openAddProject() {
   S.editProjId = null;
   document.getElementById('projModalTitle').textContent = 'New Project';
-  document.getElementById('pName').value = '';
+  document.getElementById('pName').value  = '';
   document.getElementById('pNotes').value = '';
-  document.getElementById('pDue').value  = '';
-  // Reset project status to active
+  document.getElementById('pDue').value   = '';
   document.querySelectorAll('#projStatusRow .pso').forEach(function(b){ b.classList.remove('sel'); });
   var activeBtn = document.querySelector('#projStatusRow .pso[data-ps="active"]');
   if (activeBtn) activeBtn.classList.add('sel');
@@ -868,9 +1078,9 @@ function openEditProj(pid) {
   if (!proj) return;
   S.editProjId = pid;
   document.getElementById('projModalTitle').textContent = 'Edit Project';
-  document.getElementById('pName').value = proj.name;
+  document.getElementById('pName').value  = proj.name;
   document.getElementById('pNotes').value = proj.notes || '';
-  document.getElementById('pDue').value  = proj.dueDate || '';
+  document.getElementById('pDue').value   = proj.dueDate || '';
   document.querySelectorAll('#projStatusRow .pso').forEach(function(b){ b.classList.remove('sel'); });
   var psBtn = document.querySelector('#projStatusRow .pso[data-ps="'+(proj.projStatus||'active')+'"]');
   if (psBtn) psBtn.classList.add('sel');
@@ -899,21 +1109,23 @@ function saveProject() {
       proj.projStatus = projStatus; proj.labels = labels;
       var done = proj.steps.filter(function(s){ return s.done; });
       proj.steps = done.concat(builtSteps);
+      dbUpsertProject(proj);
     }
   } else {
-    S.projects.push({id:uid(), name:name, notes:notes, dueDate:dueDate, projStatus:projStatus, labels:labels, steps:builtSteps, completed:false, created:Date.now()});
+    var newProj = {id:uid(), name:name, notes:notes, dueDate:dueDate, projStatus:projStatus, labels:labels, steps:builtSteps, completed:false, created:Date.now()};
+    S.projects.push(newProj);
+    dbUpsertProject(newProj);
   }
-  persist(); renderAll(); closeModal('projectModal');
+  renderAll(); closeModal('projectModal');
 }
 
-// ── STEP MODAL (kept for Project view inline editing) ─────────────────
+// ── STEP MODAL ────────────────────────────────────────────────────────
 
 function openEditStep(pid, sid) {
   var proj = S.projects.find(function(p){ return p.id === pid; });
   var step = proj && proj.steps.find(function(s){ return s.id === sid; });
   if (!step) return;
 
-  // Open the full task modal populated with step data
   S.editTaskId     = null;
   S.editStepProjId = pid;
   S.editStepId     = sid;
@@ -923,8 +1135,6 @@ function openEditStep(pid, sid) {
   document.getElementById('tNotes').value = step.notes || '';
   document.getElementById('tDue').value   = step.dueDate || '';
 
-  // Status: show effective step status but let them override to On Hold
-  // We'll use the status grid but map auto/onhold to real statuses
   var manualHold  = step.statusOverride === 'onhold';
   var ns          = nextStep(proj);
   var isNext      = ns && ns.id === step.id;
@@ -933,11 +1143,10 @@ function openEditStep(pid, sid) {
     : (manualHold ? 'onhold' : (isNext ? 'active' : 'todo'));
   buildStatusGrid(effectiveSt);
 
-  // Hide assign-to-project section entirely (already in a project)
-  var apw  = document.getElementById('assignProjWrap');
-  var apdiv = apw && apw.previousElementSibling;
-  if (apw)  apw.style.display  = 'none';
-  if (apdiv && apdiv.classList.contains('fdiv')) apdiv.style.display = 'none';
+  var apw   = document.getElementById('assignProjWrap');
+  var apdiv = document.getElementById('assignProjDivider');
+  if (apw)   apw.style.display   = 'none';
+  if (apdiv) apdiv.style.display = 'none';
 
   S.tLabels = (step.labels   || []).slice();
   S.tLoc    = step.location ? [step.location] : [];
@@ -949,7 +1158,6 @@ function openEditStep(pid, sid) {
 }
 
 function saveStep() {
-  // Called when taskModal is open in "step edit" mode
   var title   = document.getElementById('tTitle').value.trim();
   if (!title) { document.getElementById('tTitle').focus(); return; }
   var dueDate  = document.getElementById('tDue').value || null;
@@ -961,22 +1169,21 @@ function saveStep() {
   var proj = S.projects.find(function(p){ return p.id === S.editStepProjId; });
   var step = proj && proj.steps.find(function(s){ return s.id === S.editStepId; });
   if (step) {
-    step.title    = title;
-    step.dueDate  = dueDate;
-    step.notes    = notes;
-    step.location = location;
-    step.labels   = labels;
-    // Map status grid selection back to statusOverride
+    step.title          = title;
+    step.dueDate        = dueDate;
+    step.notes          = notes;
+    step.location       = location;
+    step.labels         = labels;
     step.statusOverride = status === 'onhold' ? 'onhold' : null;
+    dbUpsertProject(proj);
   }
 
-  // Reset assign-to-project visibility
-  var apw  = document.getElementById('assignProjWrap');
-  var apdiv = apw && apw.previousElementSibling;
-  if (apw)  apw.style.display  = '';
-  if (apdiv && apdiv.classList.contains('fdiv')) apdiv.style.display = '';
+  var apw   = document.getElementById('assignProjWrap');
+  var apdiv = document.getElementById('assignProjDivider');
+  if (apw)   apw.style.display   = '';
+  if (apdiv) apdiv.style.display = '';
 
-  persist(); renderAll(); closeModal('taskModal');
+  renderAll(); closeModal('taskModal');
   S.editStepProjId = null; S.editStepId = null;
 }
 
@@ -1002,16 +1209,16 @@ function renderSettingsList(containerId, arr, type) {
     row.className = 'settings-item';
     row.innerHTML = '<span>'+esc(item)+'</span>';
     var btn = document.createElement('button');
-    btn.className = 'settings-rm';
+    btn.className   = 'settings-rm';
     btn.textContent = '✕';
-    btn.title = 'Remove';
-    btn.onclick = (function(idx, t) {
+    btn.title       = 'Remove';
+    btn.onclick = (function(idx, itemName, t) {
       return function() {
-        if (t === 'label') S.labels.splice(idx, 1);
-        else S.locations.splice(idx, 1);
-        persist(); renderSettingsLists();
+        if (t === 'label') { S.labels.splice(idx, 1);    dbDeleteLabel(itemName); }
+        else               { S.locations.splice(idx, 1); dbDeleteLocation(itemName); }
+        renderSettingsLists();
       };
-    }(i, type));
+    }(i, item, type));
     row.appendChild(btn);
     c.appendChild(row);
   });
@@ -1023,7 +1230,12 @@ function settingsAdd(type) {
   var val   = inp && inp.value.trim();
   if (!val) return;
   var pool  = type === 'label' ? S.labels : S.locations;
-  if (pool.indexOf(val) === -1) { pool.push(val); persist(); renderSettingsLists(); }
+  if (pool.indexOf(val) === -1) {
+    pool.push(val);
+    if (type === 'label') dbAddLabel(val);
+    else dbAddLocation(val);
+    renderSettingsLists();
+  }
   if (inp) { inp.value = ''; inp.focus(); }
 }
 
@@ -1035,7 +1247,7 @@ function updateCaptureBadge() {
   var badge = document.getElementById('captureBadge');
   if (!badge) return;
   var count = S.inbox.length;
-  badge.textContent  = count;
+  badge.textContent   = count;
   badge.style.display = count > 0 ? 'inline-flex' : 'none';
 }
 
@@ -1049,10 +1261,11 @@ function openCapture() {
 function saveCapture(addAnother) {
   var title = document.getElementById('captureTitle').value.trim();
   if (!title) { document.getElementById('captureTitle').focus(); return; }
-  var note  = document.getElementById('captureNote').value.trim();
-  S.inbox.push({ id: uid(), title: title, note: note, created: Date.now() });
-  persist();
+  var note = document.getElementById('captureNote').value.trim();
+  var item = { id: uid(), title: title, note: note, created: Date.now() };
+  S.inbox.push(item);
   updateCaptureBadge();
+  dbAddInboxItem(item);
   if (addAnother) {
     document.getElementById('captureTitle').value = '';
     document.getElementById('captureNote').value  = '';
@@ -1085,22 +1298,21 @@ function openGYST() {
 function gystStart() {
   var raw       = (document.getElementById('gystDump')||{}).value || '';
   var typed     = raw.split('\n').map(function(s){ return s.trim(); }).filter(Boolean);
-  // Merge inbox items — inbox first so captured things come up before the fresh brain dump
   var inboxItems = S.inbox.map(function(i){ return i.note ? i.title + ' — ' + i.note : i.title; });
   var all = inboxItems.concat(typed);
   if (!all.length) { closeModal('gystModal'); return; }
   S.gyst.items      = all;
   S.gyst.index      = 0;
-  S.gyst.inboxCount = S.inbox.length; // remember how many were from inbox
+  S.gyst.inboxCount = S.inbox.length;
   gystShowItem();
 }
 
 function gystDone() {
   var added = S.gyst.index;
-  // Clear inbox items that were processed
   if (S.gyst.inboxCount > 0) {
+    var ids = S.inbox.slice(0, S.gyst.inboxCount).map(function(i){ return i.id; });
     S.inbox.splice(0, S.gyst.inboxCount);
-    persist();
+    dbClearInboxItems(ids);
     updateCaptureBadge();
   }
   document.getElementById('gystContent').innerHTML = ''
@@ -1170,8 +1382,10 @@ function gystSaveTask(idx) {
   var title   = S.gyst.items[idx];
   var status  = (document.querySelector('#gystStatusGrid .so.sel')||{dataset:{}}).dataset.s || 'active';
   var dueDate = (document.getElementById('gystDue')||{}).value || null;
-  S.tasks.unshift({id:uid(), title:title, status:status, notes:'', dueDate:dueDate, labels:[], location:null, done:false, created:Date.now()});
-  persist(); S.gyst.index = idx + 1; gystShowItem();
+  var newTask = {id:uid(), title:title, status:status, notes:'', dueDate:dueDate, labels:[], location:null, done:false, created:Date.now()};
+  S.tasks.unshift(newTask);
+  dbUpsertTask(newTask);
+  S.gyst.index = idx + 1; gystShowItem();
 }
 
 function gystPickProject(idx) {
@@ -1228,20 +1442,26 @@ function gystSaveProject(idx) {
   var steps   = (window._gystSteps||[]).filter(function(r){ return r.title && r.title.trim(); }).map(function(r) {
     return {id:uid(), title:r.title.trim(), done:false, dueDate:null, statusOverride:null, labels:[], location:null};
   });
-  S.projects.push({id:uid(), name:name, notes:'', dueDate:dueDate, projStatus:'active', labels:[], steps:steps, completed:false, created:Date.now()});
-  persist(); S.gyst.index = idx + 1; gystShowItem();
+  var newProj = {id:uid(), name:name, notes:'', dueDate:dueDate, projStatus:'active', labels:[], steps:steps, completed:false, created:Date.now()};
+  S.projects.push(newProj);
+  dbUpsertProject(newProj);
+  S.gyst.index = idx + 1; gystShowItem();
 }
 
 function gystPickErrand(idx) {
-  var title = S.gyst.items[idx];
-  S.tasks.unshift({id:uid(), title:title, status:'errands', notes:'', dueDate:null, labels:[], location:null, done:false, created:Date.now()});
-  persist(); S.gyst.index = idx + 1; gystShowItem();
+  var title   = S.gyst.items[idx];
+  var newTask = {id:uid(), title:title, status:'errands', notes:'', dueDate:null, labels:[], location:null, done:false, created:Date.now()};
+  S.tasks.unshift(newTask);
+  dbUpsertTask(newTask);
+  S.gyst.index = idx + 1; gystShowItem();
 }
 
 function gystPickSomeday(idx) {
-  var title = S.gyst.items[idx];
-  S.tasks.unshift({id:uid(), title:title, status:'someday', notes:'', dueDate:null, labels:[], location:null, done:false, created:Date.now()});
-  persist(); S.gyst.index = idx + 1; gystShowItem();
+  var title   = S.gyst.items[idx];
+  var newTask = {id:uid(), title:title, status:'someday', notes:'', dueDate:null, labels:[], location:null, done:false, created:Date.now()};
+  S.tasks.unshift(newTask);
+  dbUpsertTask(newTask);
+  S.gyst.index = idx + 1; gystShowItem();
 }
 
 function gystSkip() { S.gyst.index++; gystShowItem(); }
@@ -1253,16 +1473,16 @@ function closeModal(id) {
   document.getElementById(id).classList.remove('open');
   if (id === 'taskModal') {
     S.editStepProjId = null; S.editStepId = null;
-    var apw  = document.getElementById('assignProjWrap');
-    var apdiv = apw && apw.previousElementSibling;
-    if (apw)  apw.style.display  = '';
-    if (apdiv && apdiv.classList.contains('fdiv')) apdiv.style.display = '';
+    var apw   = document.getElementById('assignProjWrap');
+    var apdiv = document.getElementById('assignProjDivider');
+    if (apw)   apw.style.display   = '';
+    if (apdiv) apdiv.style.display = '';
   }
 }
 
 document.querySelectorAll('.modal-overlay').forEach(function(o) {
   o.addEventListener('click', function(e) {
-    if (e.target === o && o.id !== 'compModal') closeModal(o.id);
+    if (e.target === o && o.id !== 'compModal') closeModal(e.currentTarget.id);
   });
 });
 
@@ -1278,5 +1498,26 @@ document.addEventListener('keydown', function(e) {
 });
 
 // ── INIT ──────────────────────────────────────────────────────────────
-renderAll();
-setInterval(renderAll, 60000);
+
+sb.auth.onAuthStateChange(async function(_event, session) {
+  if (session && session.user) {
+    currentUser = session.user;
+    document.getElementById('authUserEmail').textContent = session.user.email;
+    showLoading();
+    try {
+      await loadAllData();
+    } catch(err) {
+      console.error('loadAllData failed:', err);
+    }
+    showApp();
+    renderAll();
+  } else {
+    currentUser = null;
+    S.tasks = []; S.inbox = []; S.projects = []; S.labels = []; S.locations = [];
+    showLogin();
+  }
+});
+
+setInterval(function() {
+  if (currentUser) renderAll();
+}, 60000);
