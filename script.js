@@ -1306,7 +1306,7 @@ function openGYST() {
     + '<p class="modal-sub">Brain dump everything on your mind — one item per line.</p>'
     + inboxNote
     + '<div class="fg"><label class="fl">What\'s in your head right now? <span class="fl-opt">(leave blank to just process inbox)</span></label>'
-    + '<textarea class="fta" id="gystDump" placeholder="Call the dentist\nFollow up with Dave\nWrite ASCEND board agenda\nBuy dog food…" style="min-height:160px"></textarea></div>'
+    + '<textarea class="fta" id="gystDump" placeholder="Call the dentist\nFollow up with Dave\nWrite ASCEND board agenda\nBuy dog food…" style="min-height:160px" onkeydown="if((event.metaKey||event.ctrlKey)&&event.key===\'Enter\'){event.preventDefault();gystStart();}"></textarea></div>'
     + '<div class="modal-actions">'
     + '<button class="btn-cancel" onclick="closeModal(\'gystModal\')">Cancel</button>'
     + '<button class="btn-save" onclick="gystStart()">Let\'s go →</button>'
@@ -1367,17 +1367,24 @@ function gystShowItem() {
 
 function gystPickTask(idx) {
   var title = S.gyst.items[idx];
+  window._gystTaskLabels = [];
+  window._gystTaskLoc    = [];
   document.getElementById('gystContent').innerHTML = ''
     + '<div class="gyst-progress"><div class="gyst-bar"><div class="gyst-bar-fill" style="width:'+Math.round(idx/S.gyst.items.length*100)+'%"></div></div><span class="gyst-bar-text">'+(idx+1)+' of '+S.gyst.items.length+'</span></div>'
     + '<div class="gyst-item">"'+esc(title)+'"</div>'
     + '<div class="gyst-item-sub">Set a status and due date</div>'
     + '<div class="fg"><label class="fl">Status</label><div class="status-grid" id="gystStatusGrid"></div></div>'
     + '<div class="fg"><label class="fl">Due Date <span class="fl-opt">(optional)</span></label><input class="fi" id="gystDue" type="date"/></div>'
+    + (S.labels.length    ? '<div class="fg"><label class="fl">Tags <span class="fl-opt">(optional)</span></label><div id="gystLabelPicker"></div></div>' : '')
+    + (S.locations.length ? '<div class="fg"><label class="fl">Location <span class="fl-opt">(optional)</span></label><div id="gystLocPicker"></div></div>' : '')
+    + '<div class="fg"><label class="fl">Notes <span class="fl-opt">(optional)</span></label><textarea class="fta" id="gystTaskNotes" placeholder="Any extra context…" style="min-height:80px"></textarea></div>'
     + '<div class="modal-actions">'
     + '<button class="btn-cancel" onclick="S.gyst.index='+idx+';gystShowItem()">← Back</button>'
     + '<button class="btn-save" onclick="gystSaveTask('+idx+')">Save & Continue →</button>'
     + '</div>';
   buildGYSTStatusGrid('todo');
+  if (S.labels.length)    renderTagPicker('gystLabelPicker', 'label',    window._gystTaskLabels);
+  if (S.locations.length) renderTagPicker('gystLocPicker',   'location', window._gystTaskLoc);
 }
 
 function buildGYSTStatusGrid(selectedId) {
@@ -1399,10 +1406,13 @@ function buildGYSTStatusGrid(selectedId) {
 }
 
 function gystSaveTask(idx) {
-  var title   = S.gyst.items[idx];
-  var status  = (document.querySelector('#gystStatusGrid .so.sel')||{dataset:{}}).dataset.s || 'active';
-  var dueDate = (document.getElementById('gystDue')||{}).value || null;
-  var newTask = {id:uid(), title:title, status:status, notes:'', dueDate:dueDate, labels:[], location:null, done:false, created:Date.now()};
+  var title    = S.gyst.items[idx];
+  var status   = (document.querySelector('#gystStatusGrid .so.sel')||{dataset:{}}).dataset.s || 'active';
+  var dueDate  = (document.getElementById('gystDue')||{}).value || null;
+  var labels   = window._gystTaskLabels || [];
+  var location = (window._gystTaskLoc && window._gystTaskLoc[0]) || null;
+  var notes    = (document.getElementById('gystTaskNotes')||{}).value || '';
+  var newTask = {id:uid(), title:title, status:status, notes:notes, dueDate:dueDate, labels:labels, location:location, done:false, created:Date.now()};
   S.tasks.unshift(newTask);
   dbUpsertTask(newTask);
   S.gyst.index = idx + 1; gystShowItem();
