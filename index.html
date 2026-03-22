@@ -368,7 +368,7 @@
 <div class="modal-overlay" id="settingsModal">
   <div class="modal" style="max-width:460px">
     <h2>Settings</h2>
-    <p class="modal-sub">Manage your labels and locations</p>
+    <p class="modal-sub">Manage your labels, locations, and theme</p>
     <div class="fg">
       <label class="fl">Labels</label>
       <div class="settings-list" id="settingsLabels"></div>
@@ -385,6 +385,11 @@
         <input class="fi quick-add-input" id="settingsNewLoc" type="text" placeholder="New location…" onkeydown="if(event.key==='Enter'){event.preventDefault();settingsAdd('location')}"/>
         <button type="button" class="quick-add-btn" onclick="settingsAdd('location')">Add</button>
       </div>
+    </div>
+    <div class="fdiv"></div>
+    <div class="fg">
+      <label class="fl">Theme</label>
+      <div class="theme-swatches" id="settingsThemes"></div>
     </div>
     <div class="modal-actions">
       <button class="btn-save" onclick="closeModal('settingsModal')">Done</button>

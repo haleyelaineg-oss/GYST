@@ -1209,14 +1209,53 @@ function saveStep() {
 
 // ── SETTINGS ──────────────────────────────────────────────────────────
 
+var THEMES = [
+  {id:'default', label:'Blue',   dot:'#4a80b0'},
+  {id:'dark',    label:'Dark',   dot:'#16202e'},
+  {id:'warm',    label:'Warm',   dot:'#b05a20'},
+  {id:'forest',  label:'Forest', dot:'#2e7a3a'},
+  {id:'rose',    label:'Rose',   dot:'#a83050'},
+];
+
+function applyTheme(id) {
+  document.documentElement.setAttribute('data-theme', id === 'default' ? '' : id);
+}
+function setTheme(id) {
+  localStorage.setItem('gyst-theme', id);
+  applyTheme(id);
+  renderThemePicker();
+}
+function loadTheme() {
+  applyTheme(localStorage.getItem('gyst-theme') || 'default');
+}
+function renderThemePicker() {
+  var c = document.getElementById('settingsThemes');
+  if (!c) return;
+  var current = localStorage.getItem('gyst-theme') || 'default';
+  c.innerHTML = '';
+  THEMES.forEach(function(t) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'theme-swatch' + (t.id === current ? ' sel' : '');
+    var dot = document.createElement('div');
+    dot.className = 'theme-dot';
+    dot.style.background = t.dot;
+    btn.appendChild(dot);
+    btn.appendChild(document.createTextNode(t.label));
+    btn.onclick = function() { setTheme(t.id); };
+    c.appendChild(btn);
+  });
+}
+
 function openSettings() {
   renderSettingsLists();
+  renderThemePicker();
   openModal('settingsModal');
 }
 
 function renderSettingsLists() {
-  renderSettingsList('settingsLabels',   S.labels,    'label');
-  renderSettingsList('settingsLocs',     S.locations, 'location');
+  renderSettingsList('settingsLabels', S.labels,    'label');
+  renderSettingsList('settingsLocs',   S.locations, 'location');
 }
 
 function renderSettingsList(containerId, arr, type) {
@@ -1227,21 +1266,90 @@ function renderSettingsList(containerId, arr, type) {
   arr.forEach(function(item, i) {
     var row = document.createElement('div');
     row.className = 'settings-item';
-    row.innerHTML = '<span>'+esc(item)+'</span>';
-    var btn = document.createElement('button');
-    btn.className   = 'settings-rm';
-    btn.textContent = '✕';
-    btn.title       = 'Remove';
-    btn.onclick = (function(idx, itemName, t) {
-      return function() {
-        if (t === 'label') { S.labels.splice(idx, 1);    dbDeleteLabel(itemName); }
-        else               { S.locations.splice(idx, 1); dbDeleteLocation(itemName); }
-        renderSettingsLists();
-      };
-    }(i, item, type));
-    row.appendChild(btn);
+
+    var upBtn = document.createElement('button');
+    upBtn.className = 'settings-move'; upBtn.textContent = '↑'; upBtn.disabled = i === 0;
+    upBtn.onclick = (function(idx){ return function(){ settingsMove(type, idx, -1); }; })(i);
+
+    var downBtn = document.createElement('button');
+    downBtn.className = 'settings-move'; downBtn.textContent = '↓'; downBtn.disabled = i === arr.length - 1;
+    downBtn.onclick = (function(idx){ return function(){ settingsMove(type, idx, 1); }; })(i);
+
+    var moveWrap = document.createElement('div');
+    moveWrap.className = 'settings-move-wrap';
+    moveWrap.appendChild(upBtn); moveWrap.appendChild(downBtn);
+
+    var nameSpan = document.createElement('span');
+    nameSpan.className = 'settings-item-name';
+    nameSpan.textContent = item;
+
+    var editBtn = document.createElement('button');
+    editBtn.className = 'settings-edit'; editBtn.textContent = '✎'; editBtn.title = 'Rename';
+    editBtn.onclick = (function(idx){ return function(){ settingsStartEdit(type, idx); }; })(i);
+
+    var rmBtn = document.createElement('button');
+    rmBtn.className = 'settings-rm'; rmBtn.textContent = '✕'; rmBtn.title = 'Remove';
+    rmBtn.onclick = (function(idx, itemName){ return function(){
+      if (type === 'label') { S.labels.splice(idx, 1); dbDeleteLabel(itemName); }
+      else { S.locations.splice(idx, 1); dbDeleteLocation(itemName); }
+      renderSettingsLists();
+    }; })(i, item);
+
+    var acts = document.createElement('div');
+    acts.className = 'settings-item-acts';
+    acts.appendChild(editBtn); acts.appendChild(rmBtn);
+
+    row.appendChild(moveWrap); row.appendChild(nameSpan); row.appendChild(acts);
     c.appendChild(row);
   });
+}
+
+function settingsMove(type, idx, dir) {
+  var arr = type === 'label' ? S.labels : S.locations;
+  var newIdx = idx + dir;
+  if (newIdx < 0 || newIdx >= arr.length) return;
+  var tmp = arr[idx]; arr[idx] = arr[newIdx]; arr[newIdx] = tmp;
+  renderSettingsLists();
+}
+
+function settingsStartEdit(type, idx) {
+  var arr = type === 'label' ? S.labels : S.locations;
+  var cId = type === 'label' ? 'settingsLabels' : 'settingsLocs';
+  var rows = document.querySelectorAll('#'+cId+' .settings-item');
+  var row = rows[idx];
+  if (!row) return;
+  var nameSpan = row.querySelector('.settings-item-name');
+  var inp = document.createElement('input');
+  inp.className = 'settings-rename-input'; inp.value = arr[idx];
+  nameSpan.replaceWith(inp);
+  inp.focus(); inp.select();
+  var editBtn = row.querySelector('.settings-edit');
+  editBtn.textContent = '✓';
+  editBtn.onclick = function() { settingsConfirmEdit(type, idx, inp); };
+  inp.onkeydown = function(e) {
+    if (e.key === 'Enter') settingsConfirmEdit(type, idx, inp);
+    if (e.key === 'Escape') renderSettingsLists();
+  };
+}
+
+function settingsConfirmEdit(type, idx, inp) {
+  var val = inp.value.trim();
+  if (!val) return;
+  var arr = type === 'label' ? S.labels : S.locations;
+  var oldName = arr[idx];
+  if (val === oldName) { renderSettingsLists(); return; }
+  arr[idx] = val;
+  if (type === 'label') { dbDeleteLabel(oldName); dbAddLabel(val); }
+  else { dbDeleteLocation(oldName); dbAddLocation(val); }
+  S.tasks.forEach(function(t) {
+    if (type === 'label') {
+      var li = t.labels.indexOf(oldName);
+      if (li > -1) { t.labels[li] = val; dbUpsertTask(t); }
+    } else {
+      if (t.location === oldName) { t.location = val; dbUpsertTask(t); }
+    }
+  });
+  renderSettingsLists();
 }
 
 function settingsAdd(type) {
@@ -1528,6 +1636,8 @@ document.addEventListener('keydown', function(e) {
 });
 
 // ── INIT ──────────────────────────────────────────────────────────────
+
+loadTheme();
 
 // Prevent double-initialization when both getSession() and onAuthStateChange fire
 var _sessionHandled = false;
