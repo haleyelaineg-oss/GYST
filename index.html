@@ -122,7 +122,7 @@
   <header>
     <div class="logo">
       <div class="logo-word">GY<span>ST</span></div>
-      <div class="logo-tagline">Get Your Shit Together</div>
+      <div class="logo-tagline">Get Your Sh*t Together</div>
     </div>
     <div class="header-right">
       <div class="kbd-hint"><kbd>⌘</kbd><kbd>K</kbd> New Task</div>
@@ -158,20 +158,6 @@
           <div class="sb-btn-inner"><span class="sb-name">Errands</span></div>
           <span class="sb-count" id="cnt-errands"></span>
         </button>
-      </div>
-
-      <!-- PROJECTS (collapsible) -->
-      <div class="sb-section">
-        <div class="sb-collapsible-header" onclick="toggleSBSection('projSection','projChevron')">
-          <div class="sb-collapsible-left">
-            <span class="sb-label">Projects</span>
-            <span class="sb-chevron" id="projChevron">▼</span>
-          </div>
-          <button class="sb-add-icon" onclick="event.stopPropagation();openAddProject()" title="New Project">+</button>
-        </div>
-        <div class="sb-collapsible-body" id="projSection">
-          <div id="projectList"></div>
-        </div>
       </div>
 
       <!-- LABELS FILTER (collapsible) -->
@@ -241,6 +227,10 @@
     <div class="fg">
       <label class="fl">Due Date <span class="fl-opt">(optional — within 48hrs auto-escalates)</span></label>
       <input class="fi" id="tDue" type="date"/>
+    </div>
+    <div class="fg">
+      <label class="fl">Time Required <span class="fl-opt">(optional)</span></label>
+      <div class="time-grid" id="tTimeGrid"></div>
     </div>
     <div class="fdiv" id="assignProjDivider"></div>
     <div class="fg" id="assignProjWrap">
