@@ -519,9 +519,36 @@ function renderTasksView(c) {
     var active = items.filter(function(i){ return !(i.type === 'task' && i.item.done); });
     var done   = items.filter(function(i){ return i.type === 'task' && i.item.done; });
     var all    = active.concat(done);
-    var bodyHTML = all.length === 0
-      ? '<div class="empty-state">Nothing here — enjoy the quiet.</div>'
-      : all.map(function(i){ return i.type === 'task' ? taskCardHTML(i.item) : stepCardHTML(i.item, i.proj, i.isNext); }).join('');
+
+    // Separate standalone tasks from project steps, grouping steps by project
+    var standaloneTasks = all.filter(function(i){ return i.type === 'task'; });
+    var projGroups = {};
+    var projOrder  = [];
+    all.filter(function(i){ return i.type === 'step'; }).forEach(function(i) {
+      var pid = i.proj.id;
+      if (!projGroups[pid]) { projGroups[pid] = {proj: i.proj, steps: []}; projOrder.push(pid); }
+      projGroups[pid].steps.push(i);
+    });
+
+    var bodyHTML = '';
+    if (standaloneTasks.length === 0 && projOrder.length === 0) {
+      bodyHTML = '<div class="empty-state">Nothing here — enjoy the quiet.</div>';
+    } else {
+      bodyHTML += standaloneTasks.map(function(i){ return taskCardHTML(i.item); }).join('');
+      projOrder.forEach(function(pid) {
+        var g = projGroups[pid];
+        var stepsHTML = g.steps.map(function(i){ return stepCardHTML(i.item, i.proj, i.isNext); }).join('');
+        bodyHTML += '<div class="proj-group">'
+          + '<div class="proj-group-header" onclick="toggleProjGroup(this)">'
+          + '<span class="proj-group-arrow">▼</span>'
+          + '<span class="proj-group-name">'+esc(g.proj.name)+'</span>'
+          + '<span class="proj-group-count">'+g.steps.length+' step'+(g.steps.length!==1?'s':'')+'</span>'
+          + '</div>'
+          + '<div class="proj-group-body">'+stepsHTML+'</div>'
+          + '</div>';
+      });
+    }
+
     grp.innerHTML = '<div class="sg-header" onclick="toggleSG(this)">'
       + '<div class="sg-left"><div class="sg-dot"></div><span class="sg-name">'+st.label+'</span><span class="sg-desc">— '+st.desc+'</span></div>'
       + '<div class="sg-right"><span class="sg-badge">'+all.length+'</span><span class="sg-toggle'+(collapsed?' collapsed':'')+'">▼</span></div>'
@@ -567,6 +594,13 @@ function stepCardHTML(step, proj, isNext) {
 function toggleSG(header) {
   var body  = header.nextElementSibling;
   var arrow = header.querySelector('.sg-toggle');
+  body.classList.toggle('hidden');
+  arrow.classList.toggle('collapsed');
+}
+
+function toggleProjGroup(header) {
+  var body  = header.nextElementSibling;
+  var arrow = header.querySelector('.proj-group-arrow');
   body.classList.toggle('hidden');
   arrow.classList.toggle('collapsed');
 }
