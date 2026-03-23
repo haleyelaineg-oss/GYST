@@ -364,6 +364,47 @@ kbd{background:var(--surface2);border:1px solid var(--border2);border-radius:4px
   --waiting:#a88878; --waiting-bg:rgba(168,136,120,.07); --waiting-bd:rgba(168,136,120,.18);
 }
 
+/* TOAST */
+.gyst-toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--text);color:var(--surface);padding:11px 20px;border-radius:10px;font-size:13px;font-weight:500;opacity:0;pointer-events:none;transition:all .25s ease;z-index:9999;white-space:nowrap;box-shadow:0 4px 16px rgba(0,0,0,.3)}
+.gyst-toast.visible{opacity:1;transform:translateX(-50%) translateY(0);pointer-events:auto}
+.toast-undo{background:transparent;border:none;color:var(--accent-lt);font-family:'Jost',sans-serif;font-size:13px;font-weight:700;cursor:pointer;padding:0;margin-left:10px;text-decoration:underline}
+
+/* COMPLETED VIEW */
+.completed-list{display:flex;flex-direction:column}
+.completed-row{display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid var(--border);transition:background .12s}
+.completed-row:hover{background:var(--surface2)}
+.completed-check{width:19px;height:19px;border-radius:6px;background:var(--active);display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700;flex-shrink:0}
+.completed-body{flex:1;min-width:0}
+.completed-title{font-size:14px;color:var(--text-muted);text-decoration:line-through;margin-bottom:2px}
+.completed-when{font-size:11px;color:var(--text-dim)}
+.completed-actions{display:flex;gap:4px;flex-shrink:0}
+
+/* RECURRING VIEW */
+.view-header{display:flex;align-items:center;justify-content:space-between;padding:20px 28px 12px;border-bottom:1.5px solid var(--border)}
+.view-title{font-size:20px;font-weight:700;color:var(--text)}
+.recurring-list{display:flex;flex-direction:column}
+.recurring-card{display:flex;align-items:center;gap:14px;padding:14px 20px;border-bottom:1px solid var(--border);transition:background .12s}
+.recurring-card:hover{background:var(--surface2)}
+.rc-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.rc-overdue .rc-dot{background:var(--red)}
+.rc-today   .rc-dot{background:var(--accent)}
+.rc-soon    .rc-dot{background:#e8a020}
+.rc-ok      .rc-dot{background:var(--border2)}
+.rc-body{flex:1;min-width:0}
+.rc-title{font-size:14px;font-weight:500;color:var(--text);margin-bottom:4px}
+.rc-meta{display:flex;align-items:center;flex-wrap:wrap;gap:8px;font-size:12px}
+.rc-freq{background:var(--surface2);border:1px solid var(--border2);border-radius:5px;padding:1px 7px;color:var(--text-muted);font-weight:500}
+.rc-due-text{font-weight:600}
+.rc-due-overdue{color:var(--red)}
+.rc-due-today{color:var(--accent)}
+.rc-due-soon{color:#e8a020}
+.rc-due-ok{color:var(--text-muted)}
+.rc-last{color:var(--text-dim)}
+.rc-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.rc-done-btn{padding:5px 12px;border-radius:8px;border:1.5px solid var(--active-bd);background:var(--active-bg);color:var(--active);font-family:'Jost',sans-serif;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s}
+.rc-done-btn:hover{background:var(--accent);border-color:var(--accent);color:#fff}
+.freq-custom-row{display:flex;align-items:center;gap:8px;margin-top:8px}
+
 /* COMPLETION MODAL */
 .comp-modal .modal{max-width:380px;text-align:center}
 .comp-modal h2{font-size:26px}

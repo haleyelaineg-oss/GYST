@@ -118,6 +118,8 @@
 </div>
 
 <!-- MAIN APP -->
+<div id="gystToast" class="gyst-toast"></div>
+
 <div class="app" id="appScreen" style="display:none">
   <header>
     <div class="logo">
@@ -157,6 +159,13 @@
         <button class="sb-btn" id="vb-errands" onclick="setView('errands',this)">
           <div class="sb-btn-inner"><span class="sb-name">Errands</span></div>
           <span class="sb-count" id="cnt-errands"></span>
+        </button>
+        <button class="sb-btn" id="vb-recurring" onclick="setView('recurring',this)">
+          <div class="sb-btn-inner"><span class="sb-name">Recurring</span></div>
+          <span class="sb-count" id="cnt-recurring"></span>
+        </button>
+        <button class="sb-btn" id="vb-completed" onclick="setView('completed',this)">
+          <div class="sb-btn-inner"><span class="sb-name">Completed</span></div>
         </button>
       </div>
 
@@ -267,7 +276,7 @@
     <h2 id="projModalTitle">New Project</h2>
     <div class="fg">
       <label class="fl">Project Name</label>
-      <input class="fi" id="pName" type="text" placeholder="What are you working toward?"/>
+      <input class="fi" id="pName" type="text" placeholder="What are you working on?"/>
     </div>
     <div class="fg">
       <label class="fl">Notes <span class="fl-opt">(optional)</span></label>
@@ -383,6 +392,60 @@
     </div>
     <div class="modal-actions">
       <button class="btn-save" onclick="closeModal('settingsModal')">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- RECURRING TASK MODAL -->
+<div class="modal-overlay" id="recurringModal">
+  <div class="modal" style="max-width:480px">
+    <h2 id="recurringModalTitle">New Recurring Task</h2>
+    <div class="fg">
+      <label class="fl">Task</label>
+      <input class="fi" id="rTitle" type="text" placeholder="What needs to happen regularly?"/>
+    </div>
+    <div class="fg">
+      <label class="fl">Notes <span class="fl-opt">(optional)</span></label>
+      <textarea class="fta" id="rNotes" placeholder="Context, details…" style="min-height:70px"></textarea>
+    </div>
+    <div class="fdiv"></div>
+    <div class="fg">
+      <label class="fl">Frequency</label>
+      <div class="time-grid" id="rFreqGrid"></div>
+      <div class="freq-custom-row" id="rFreqCustomWrap" style="display:none">
+        <span style="font-size:13px;color:var(--text-muted)">Every</span>
+        <input class="fi" id="rCustomDays" type="number" min="1" max="365" placeholder="?" style="width:70px;text-align:center"/>
+        <span style="font-size:13px;color:var(--text-muted)">days</span>
+      </div>
+    </div>
+    <div class="fg">
+      <label class="fl">Next Due <span class="fl-opt">(defaults to today)</span></label>
+      <input class="fi" id="rFirstDue" type="date"/>
+    </div>
+    <div class="fdiv"></div>
+    <div class="fg">
+      <label class="fl">Labels <span class="fl-opt">(optional)</span></label>
+      <div class="tag-picker" id="rLabelPicker"></div>
+      <div class="quick-add-row">
+        <input class="fi quick-add-input" id="rNewLabel" type="text" placeholder="New label…" onkeydown="if(event.key==='Enter'){event.preventDefault();quickAdd('label','recurring')}"/>
+        <button type="button" class="quick-add-btn" onclick="quickAdd('label','recurring')">Add</button>
+      </div>
+    </div>
+    <div class="fg">
+      <label class="fl">Location <span class="fl-opt">(optional)</span></label>
+      <div class="tag-picker" id="rLocPicker"></div>
+      <div class="quick-add-row">
+        <input class="fi quick-add-input" id="rNewLoc" type="text" placeholder="New location…" onkeydown="if(event.key==='Enter'){event.preventDefault();quickAdd('location','recurring')}"/>
+        <button type="button" class="quick-add-btn" onclick="quickAdd('location','recurring')">Add</button>
+      </div>
+    </div>
+    <div class="fg">
+      <label class="fl">Time Required <span class="fl-opt">(optional)</span></label>
+      <div class="time-grid" id="rTimeGrid"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeModal('recurringModal')">Cancel</button>
+      <button class="btn-save" onclick="saveRecurring()">Save</button>
     </div>
   </div>
 </div>

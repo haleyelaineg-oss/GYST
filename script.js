@@ -39,6 +39,7 @@ let S = {
   projects:  [],
   labels:    [],
   locations: [],
+  recurring: [],
   view: 'all',
   activeProjId: null,
   editTaskId: null,
@@ -47,7 +48,9 @@ let S = {
   editStepId: null,
   compProjId: null,
   gyst: {items:[], index:0},
-  tLabels: [], tLoc: [], pLabels: [], sLoc: [],
+  tLabels: [], tLoc: [], pLabels: [], sLoc: [], rLabels: [], rLoc: [],
+  editRecurringId: null,
+  completionStack: [],
 };
 
 // no-op — replaced by targeted DB calls below
@@ -76,6 +79,7 @@ function dbTaskToLocal(row) {
     location:     row.location      || null,
     timeRequired: row.time_required || null,
     done:         row.done,
+    completedAt:  row.completed_at  || null,
     created:      new Date(row.created_at).getTime(),
   };
 }
@@ -103,6 +107,22 @@ function dbInboxToLocal(row) {
   };
 }
 
+function dbRecurringToLocal(row) {
+  return {
+    id:              row.id,
+    title:           row.title,
+    notes:           row.notes            || '',
+    intervalDays:    row.interval_days,
+    labels:          row.labels           || [],
+    location:        row.location         || null,
+    timeRequired:    row.time_required    || null,
+    lastCompletedAt: row.last_completed_at || null,
+    nextDueAt:       row.next_due_at      || null,
+    active:          row.active,
+    created:         new Date(row.created_at).getTime(),
+  };
+}
+
 // ── DATA LOADING ──────────────────────────────────────────────────────
 
 async function loadAllData() {
@@ -119,6 +139,7 @@ async function loadAllData() {
       sb.from('inbox').select('*').order('created_at', {ascending: true}),
       sb.from('labels').select('name').order('name'),
       sb.from('locations').select('name').order('name'),
+      sb.from('recurring_tasks').select('*').order('next_due_at', {ascending: true}),
     ]),
     wakeTimeout,
   ]);
@@ -128,6 +149,7 @@ async function loadAllData() {
   S.inbox     = (results[2].data || []).map(dbInboxToLocal);
   S.labels    = (results[3].data || []).map(function(r){ return r.name; });
   S.locations = (results[4].data || []).map(function(r){ return r.name; });
+  S.recurring = (results[5].data || []).map(dbRecurringToLocal);
 }
 
 // ── DB WRITE HELPERS (fire-and-forget) ───────────────────────────────
@@ -148,6 +170,7 @@ async function dbUpsertTask(task) {
     labels:        task.labels       || [],
     location:      task.location     || null,
     time_required: task.timeRequired || null,
+    completed_at:  task.completedAt  || null,
   }, { onConflict: 'id' });
   if (res.error) console.error('[GYST] Save task error:', res.error);
   else console.log('[GYST] task saved ok');
@@ -213,6 +236,35 @@ async function dbAddLocation(name) {
 async function dbDeleteLocation(name) {
   var res = await sb.from('locations').delete().eq('user_id', currentUser.id).eq('name', name);
   if (res.error) console.error('Delete location:', res.error);
+}
+
+async function dbUpsertRecurring(r) {
+  if (!currentUser) return;
+  var res = await sb.from('recurring_tasks').upsert({
+    id:               r.id,
+    user_id:          currentUser.id,
+    title:            r.title,
+    notes:            r.notes          || null,
+    interval_days:    r.intervalDays,
+    labels:           r.labels         || [],
+    location:         r.location       || null,
+    time_required:    r.timeRequired   || null,
+    last_completed_at:r.lastCompletedAt|| null,
+    next_due_at:      r.nextDueAt      || null,
+    active:           r.active !== false,
+  }, { onConflict: 'id' });
+  if (res.error) console.error('[GYST] Recurring upsert error:', res.error);
+}
+
+async function dbDeleteRecurring(id) {
+  var res = await sb.from('recurring_tasks').delete().eq('id', id);
+  if (res.error) console.error('[GYST] Recurring delete error:', res.error);
+}
+
+async function dbLogCompletion(taskId) {
+  if (!currentUser) return;
+  var res = await sb.from('recurring_completions').insert({ task_id: taskId, user_id: currentUser.id });
+  if (res.error) console.error('[GYST] Completion log error:', res.error);
 }
 
 // ── AUTH ──────────────────────────────────────────────────────────────
@@ -288,7 +340,7 @@ async function authSubmit() {
 
 async function logout() {
   await sb.auth.signOut();
-  S.tasks = []; S.inbox = []; S.projects = []; S.labels = []; S.locations = [];
+  S.tasks = []; S.inbox = []; S.projects = []; S.labels = []; S.locations = []; S.recurring = [];
   currentUser = null;
 }
 
@@ -440,12 +492,20 @@ function renderSidebar() {
   var projectCount = S.projects.filter(function(p){ return !p.completed; }).length;
   var errandCount  = S.tasks.filter(function(t){ return !t.done && t.status === 'errands'; }).length;
 
+  var today = new Date().toISOString().split('T')[0];
+  var recurringDue = S.recurring.filter(function(r) {
+    if (!r.active) return false;
+    return !r.nextDueAt || r.nextDueAt <= today;
+  }).length;
+
   var cntAll = document.getElementById('cnt-all');
   var cntProj = document.getElementById('cnt-projects');
   var cntErr  = document.getElementById('cnt-errands');
-  if (cntAll)  cntAll.textContent  = allCount     || '';
-  if (cntProj) cntProj.textContent = projectCount || '';
-  if (cntErr)  cntErr.textContent  = errandCount  || '';
+  var cntRec  = document.getElementById('cnt-recurring');
+  if (cntAll)  cntAll.textContent  = allCount      || '';
+  if (cntProj) cntProj.textContent = projectCount  || '';
+  if (cntErr)  cntErr.textContent  = errandCount   || '';
+  if (cntRec)  cntRec.textContent  = recurringDue  || '';
 
   var list = document.getElementById('projectList');
   if (list) {
@@ -477,15 +537,17 @@ function renderSidebar() {
 
 function renderMain() {
   var c = document.getElementById('mainContent');
-  if      (S.view === 'projects') renderProjectsView(c);
-  else if (S.view === 'errands')  renderErrandsView(c);
-  else if (S.view === 'project')  renderSingleProjectView(c);
-  else                            renderTasksView(c);
+  if      (S.view === 'projects')  renderProjectsView(c);
+  else if (S.view === 'errands')   renderErrandsView(c);
+  else if (S.view === 'project')   renderSingleProjectView(c);
+  else if (S.view === 'recurring') renderRecurringView(c);
+  else if (S.view === 'completed') renderCompletedView(c);
+  else                             renderTasksView(c);
 }
 
 function setView(v, btn) {
   S.view = v;
-  document.querySelectorAll('#vb-all,#vb-projects,#vb-errands').forEach(function(b){ b.classList.remove('active'); });
+  document.querySelectorAll('#vb-all,#vb-projects,#vb-errands,#vb-recurring,#vb-completed').forEach(function(b){ b.classList.remove('active'); });
   document.querySelectorAll('#projectList .sb-btn').forEach(function(b){ b.classList.remove('active'); });
   if (btn) btn.classList.add('active');
   renderSidebar();
@@ -501,6 +563,7 @@ function renderTasksView(c) {
   STATUSES.forEach(function(s){ buckets[s.id] = []; });
 
   S.tasks.forEach(function(t) {
+    if (t.done) return;
     if (q && !t.title.toLowerCase().includes(q) && !(t.notes||'').toLowerCase().includes(q)) return;
     if (!itemMatchesLabels(t)) return;
     if (!itemMatchesLocations(t)) return;
@@ -524,9 +587,7 @@ function renderTasksView(c) {
     var collapsed = st.id === 'onhold' || st.id === 'waiting' || st.id === 'someday';
     var grp = document.createElement('div');
     grp.className = 'status-group s-' + st.id;
-    var active = items.filter(function(i){ return !(i.type === 'task' && i.item.done); });
-    var done   = items.filter(function(i){ return i.type === 'task' && i.item.done; });
-    var all    = active.concat(done);
+    var all = items;
 
     var bodyHTML = all.length === 0
       ? '<div class="empty-state">Nothing here — enjoy the quiet.</div>'
@@ -602,6 +663,267 @@ function assignNextStep(projId, stepId) {
   proj.steps.splice(insertAt, 0, step);
   dbUpsertProject(proj);
   renderAll();
+}
+
+// ── RECURRING VIEW ────────────────────────────────────────────────────
+
+var FREQ_PRESETS = [
+  {days:1,  label:'Daily'},
+  {days:7,  label:'Weekly'},
+  {days:14, label:'Every 2 Wks'},
+  {days:30, label:'Monthly'},
+  {days:-1, label:'Custom'},
+];
+
+function freqLabel(days) {
+  if (days === 1)  return 'Daily';
+  if (days === 7)  return 'Weekly';
+  if (days === 14) return 'Every 2 weeks';
+  if (days === 30) return 'Monthly';
+  return 'Every ' + days + ' days';
+}
+
+function calcNextDue(intervalDays) {
+  var d = new Date();
+  d.setDate(d.getDate() + intervalDays);
+  return d.toISOString().split('T')[0];
+}
+
+function recurringDueStatus(r) {
+  var today = new Date().toISOString().split('T')[0];
+  if (!r.nextDueAt || r.nextDueAt < today) return 'overdue';
+  if (r.nextDueAt === today) return 'today';
+  var daysUntil = Math.ceil((new Date(r.nextDueAt) - new Date(today)) / 86400000);
+  if (daysUntil <= 3) return 'soon';
+  return 'ok';
+}
+
+function renderRecurringView(c) {
+  c.innerHTML = '';
+  var today = new Date().toISOString().split('T')[0];
+  var sorted = S.recurring.filter(function(r){ return r.active; }).slice().sort(function(a, b) {
+    var ad = a.nextDueAt || today, bd = b.nextDueAt || today;
+    return ad < bd ? -1 : ad > bd ? 1 : 0;
+  });
+
+  var header = document.createElement('div');
+  header.className = 'view-header';
+  header.innerHTML = '<h2 class="view-title">Recurring Tasks</h2>'
+    + '<button class="btn btn-secondary" onclick="openAddRecurring()">+ Add</button>';
+  c.appendChild(header);
+
+  if (!sorted.length) {
+    c.innerHTML += '<div class="empty-state">No recurring tasks yet — add chores, habits, and routines here.</div>';
+    return;
+  }
+
+  var list = document.createElement('div');
+  list.className = 'recurring-list';
+
+  sorted.forEach(function(r) {
+    var status = recurringDueStatus(r);
+    var card = document.createElement('div');
+    card.className = 'recurring-card rc-' + status;
+
+    var daysUntil = r.nextDueAt ? Math.ceil((new Date(r.nextDueAt) - new Date(today)) / 86400000) : -1;
+    var dueText = daysUntil < 0 ? 'Overdue by ' + Math.abs(daysUntil) + ' day' + (Math.abs(daysUntil)!==1?'s':'')
+                : daysUntil === 0 ? 'Due today'
+                : 'Due in ' + daysUntil + ' day' + (daysUntil!==1?'s':'');
+
+    var lastText = r.lastCompletedAt
+      ? (function() {
+          var ago = Math.floor((new Date() - new Date(r.lastCompletedAt)) / 86400000);
+          return ago === 0 ? 'Done today' : ago === 1 ? 'Done yesterday' : 'Done ' + ago + ' days ago';
+        })()
+      : 'Never done';
+
+    card.innerHTML = '<div class="rc-dot"></div>'
+      + '<div class="rc-body">'
+      + '<div class="rc-title">' + esc(r.title) + '</div>'
+      + '<div class="rc-meta">'
+      + '<span class="rc-freq">' + freqLabel(r.intervalDays) + '</span>'
+      + '<span class="rc-due-text rc-due-' + status + '">' + dueText + '</span>'
+      + '<span class="rc-last">' + lastText + '</span>'
+      + (r.timeRequired ? '<span class="ac-time">' + (TIME_OPTS.find(function(o){return o.id===r.timeRequired;})||{label:''}).label + '</span>' : '')
+      + '</div></div>'
+      + '<div class="rc-actions">'
+      + '<button class="rc-done-btn" onclick="completeRecurring(\'' + r.id + '\')">✓ Done</button>'
+      + '<button class="ic-btn" onclick="openEditRecurring(\'' + r.id + '\')">✎</button>'
+      + '<button class="ic-btn del" onclick="deleteRecurring(\'' + r.id + '\')">✕</button>'
+      + '</div>';
+
+    list.appendChild(card);
+  });
+  c.appendChild(list);
+}
+
+function buildFreqGrid(selectedDays) {
+  var grid = document.getElementById('rFreqGrid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  var isCustom = selectedDays > 0 && !FREQ_PRESETS.find(function(p){ return p.days === selectedDays; });
+  FREQ_PRESETS.forEach(function(p) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    var isSel = p.days === -1 ? isCustom : p.days === selectedDays;
+    btn.className = 'to' + (isSel ? ' sel' : '');
+    btn.dataset.days = p.days;
+    btn.textContent = p.label;
+    btn.onclick = function() {
+      document.querySelectorAll('#rFreqGrid .to').forEach(function(b){ b.classList.remove('sel'); });
+      btn.classList.add('sel');
+      var wrap = document.getElementById('rFreqCustomWrap');
+      wrap.style.display = p.days === -1 ? 'flex' : 'none';
+      if (p.days === -1) document.getElementById('rCustomDays').focus();
+    };
+    grid.appendChild(btn);
+  });
+  var wrap = document.getElementById('rFreqCustomWrap');
+  if (isCustom) {
+    wrap.style.display = 'flex';
+    document.getElementById('rCustomDays').value = selectedDays;
+  } else {
+    wrap.style.display = 'none';
+  }
+}
+
+function openAddRecurring() {
+  S.editRecurringId = null;
+  document.getElementById('recurringModalTitle').textContent = 'New Recurring Task';
+  document.getElementById('rTitle').value = '';
+  document.getElementById('rNotes').value = '';
+  document.getElementById('rFirstDue').value = new Date().toISOString().split('T')[0];
+  S.rLabels = []; S.rLoc = [];
+  renderTagPicker('rLabelPicker', 'label',    S.rLabels);
+  renderTagPicker('rLocPicker',   'location', S.rLoc);
+  buildTimeGrid('rTimeGrid', null);
+  buildFreqGrid(7);
+  openModal('recurringModal');
+  setTimeout(function(){ document.getElementById('rTitle').focus(); }, 120);
+}
+
+function openEditRecurring(id) {
+  var r = S.recurring.find(function(r){ return r.id === id; });
+  if (!r) return;
+  S.editRecurringId = id;
+  document.getElementById('recurringModalTitle').textContent = 'Edit Recurring Task';
+  document.getElementById('rTitle').value = r.title;
+  document.getElementById('rNotes').value = r.notes || '';
+  document.getElementById('rFirstDue').value = r.nextDueAt || new Date().toISOString().split('T')[0];
+  S.rLabels = (r.labels || []).slice();
+  S.rLoc    = r.location ? [r.location] : [];
+  renderTagPicker('rLabelPicker', 'label',    S.rLabels);
+  renderTagPicker('rLocPicker',   'location', S.rLoc);
+  buildTimeGrid('rTimeGrid', r.timeRequired || null);
+  buildFreqGrid(r.intervalDays);
+  openModal('recurringModal');
+  setTimeout(function(){ document.getElementById('rTitle').focus(); }, 120);
+}
+
+function saveRecurring() {
+  var title = document.getElementById('rTitle').value.trim();
+  if (!title) { document.getElementById('rTitle').focus(); return; }
+  var selFreq = document.querySelector('#rFreqGrid .to.sel');
+  var days = selFreq ? parseInt(selFreq.dataset.days) : 7;
+  if (days === -1) days = parseInt(document.getElementById('rCustomDays').value) || 7;
+  var notes        = document.getElementById('rNotes').value.trim();
+  var nextDueAt    = document.getElementById('rFirstDue').value || new Date().toISOString().split('T')[0];
+  var labels       = S.rLabels.slice();
+  var location     = S.rLoc[0] || null;
+  var timeRequired = (document.querySelector('#rTimeGrid .to.sel') || {dataset:{}}).dataset.t || null;
+
+  if (S.editRecurringId) {
+    var r = S.recurring.find(function(r){ return r.id === S.editRecurringId; });
+    if (r) {
+      r.title=title; r.notes=notes; r.intervalDays=days;
+      r.labels=labels; r.location=location; r.timeRequired=timeRequired;
+      r.nextDueAt=nextDueAt;
+      dbUpsertRecurring(r);
+    }
+  } else {
+    var newR = {id:uid(), title:title, notes:notes, intervalDays:days, labels:labels,
+      location:location, timeRequired:timeRequired, lastCompletedAt:null,
+      nextDueAt:nextDueAt, active:true, created:Date.now()};
+    S.recurring.push(newR);
+    dbUpsertRecurring(newR);
+  }
+  renderAll();
+  closeModal('recurringModal');
+}
+
+function completeRecurring(id) {
+  var r = S.recurring.find(function(r){ return r.id === id; });
+  if (!r) return;
+  r.lastCompletedAt = new Date().toISOString();
+  r.nextDueAt = calcNextDue(r.intervalDays);
+  dbUpsertRecurring(r);
+  dbLogCompletion(id);
+  renderAll();
+}
+
+function deleteRecurring(id) {
+  if (!confirm('Delete this recurring task? This cannot be undone.')) return;
+  S.recurring = S.recurring.filter(function(r){ return r.id !== id; });
+  dbDeleteRecurring(id);
+  renderAll();
+}
+
+// ── COMPLETED VIEW ────────────────────────────────────────────────────
+
+function renderCompletedView(c) {
+  c.innerHTML = '';
+  var done = S.tasks.filter(function(t){ return t.done; }).slice().sort(function(a, b) {
+    var at = a.completedAt ? new Date(a.completedAt).getTime() : a.created;
+    var bt = b.completedAt ? new Date(b.completedAt).getTime() : b.created;
+    return bt - at;
+  });
+
+  var header = document.createElement('div');
+  header.className = 'view-header';
+  header.innerHTML = '<h2 class="view-title">Completed</h2>'
+    + '<span style="font-size:12px;color:var(--text-muted)">' + done.length + ' task' + (done.length!==1?'s':'') + '</span>';
+  c.appendChild(header);
+
+  if (!done.length) {
+    c.innerHTML += '<div class="empty-state">Nothing completed yet — go get some wins! 🏆</div>';
+    return;
+  }
+
+  var list = document.createElement('div');
+  list.className = 'completed-list';
+
+  done.forEach(function(t) {
+    var when = t.completedAt
+      ? (function() {
+          var ago = Math.floor((Date.now() - new Date(t.completedAt).getTime()) / 86400000);
+          return ago === 0 ? 'Today' : ago === 1 ? 'Yesterday' : ago + ' days ago';
+        })()
+      : '';
+
+    var row = document.createElement('div');
+    row.className = 'completed-row';
+    row.innerHTML = '<div class="completed-check">✓</div>'
+      + '<div class="completed-body">'
+      + '<div class="completed-title">' + esc(t.title) + '</div>'
+      + (when ? '<div class="completed-when">' + when + '</div>' : '')
+      + '</div>'
+      + '<div class="completed-actions">'
+      + '<button class="ic-btn" title="Restore" onclick="restoreTask(\'' + t.id + '\')">↩</button>'
+      + '<button class="ic-btn del" onclick="delTask(\'' + t.id + '\')">✕</button>'
+      + '</div>';
+    list.appendChild(row);
+  });
+  c.appendChild(list);
+}
+
+function restoreTask(id) {
+  var t = S.tasks.find(function(t){ return t.id === id; });
+  if (!t) return;
+  t.done = false;
+  t.completedAt = null;
+  S.completionStack = S.completionStack.filter(function(i){ return i !== id; });
+  renderAll();
+  dbUpsertTask(t);
 }
 
 // ── ERRANDS VIEW ─────────────────────────────────────────────────────
@@ -810,9 +1132,46 @@ function buildStepRow(pid, step, idx, isNext, proj) {
 function toggleTask(id) {
   var t = S.tasks.find(function(t){ return t.id === id; });
   if (!t) return;
-  t.done = !t.done;
+  if (!t.done) {
+    t.done = true;
+    t.completedAt = new Date().toISOString();
+    S.completionStack.push(id);
+    showToast('Task completed · <button class="toast-undo" onclick="undoCompletion()">Undo</button>');
+  } else {
+    t.done = false;
+    t.completedAt = null;
+    S.completionStack = S.completionStack.filter(function(i){ return i !== id; });
+    hideToast();
+  }
   renderAll();
   dbUpsertTask(t);
+}
+
+function undoCompletion() {
+  var id = S.completionStack.pop();
+  if (!id) return;
+  var t = S.tasks.find(function(t){ return t.id === id; });
+  if (!t) return;
+  t.done = false;
+  t.completedAt = null;
+  renderAll();
+  dbUpsertTask(t);
+  hideToast();
+}
+
+var _toastTimer = null;
+function showToast(html) {
+  var toast = document.getElementById('gystToast');
+  if (!toast) return;
+  toast.innerHTML = html;
+  toast.classList.add('visible');
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(hideToast, 5000);
+}
+function hideToast() {
+  var toast = document.getElementById('gystToast');
+  if (toast) toast.classList.remove('visible');
+  clearTimeout(_toastTimer);
 }
 
 function delTask(id) {
@@ -966,14 +1325,17 @@ function renderTagPicker(containerId, type, selectedArr) {
 }
 
 function quickAdd(type, ctx) {
-  var inpId = ctx === 'task' ? (type === 'label' ? 'tNewLabel' : 'tNewLoc')
-            : ctx === 'project' ? 'pNewLabel'
+  var inpId = ctx === 'task'      ? (type === 'label' ? 'tNewLabel' : 'tNewLoc')
+            : ctx === 'project'   ? 'pNewLabel'
+            : ctx === 'recurring' ? (type === 'label' ? 'rNewLabel' : 'rNewLoc')
             : 'sNewLoc';
   var pickerMap = {
-    'label-task':    {picker:'tLabelPicker',  arr:'tLabels'},
-    'location-task': {picker:'tLocPicker',    arr:'tLoc'},
-    'label-project': {picker:'pLabelPicker',  arr:'pLabels'},
-    'location-step': {picker:'sLocPicker',    arr:'sLoc'},
+    'label-task':      {picker:'tLabelPicker',  arr:'tLabels'},
+    'location-task':   {picker:'tLocPicker',    arr:'tLoc'},
+    'label-project':   {picker:'pLabelPicker',  arr:'pLabels'},
+    'location-step':   {picker:'sLocPicker',    arr:'sLoc'},
+    'label-recurring': {picker:'rLabelPicker',  arr:'rLabels'},
+    'location-recurring':{picker:'rLocPicker',  arr:'rLoc'},
   };
   var key  = type + '-' + ctx;
   var info = pickerMap[key];
@@ -1685,7 +2047,14 @@ document.querySelectorAll('.modal-overlay').forEach(function(o) {
 });
 
 document.addEventListener('keydown', function(e) {
-  if (e.key === 'Escape') ['taskModal','projectModal','stepModal','gystModal','settingsModal','captureModal'].forEach(closeModal);
+  if (e.key === 'Escape') ['taskModal','projectModal','stepModal','gystModal','settingsModal','captureModal','recurringModal'].forEach(closeModal);
+  if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+    var anyModalOpen = ['taskModal','projectModal','stepModal','gystModal','settingsModal','captureModal','recurringModal'].some(function(id) {
+      var el = document.getElementById(id);
+      return el && el.classList.contains('open');
+    });
+    if (!anyModalOpen && S.completionStack.length) { e.preventDefault(); undoCompletion(); }
+  }
   if ((e.metaKey||e.ctrlKey) && e.key === 'k') { e.preventDefault(); openAddTask(); }
   var tag = document.activeElement.tagName;
   if (e.key === 'Enter' && !['TEXTAREA','SELECT'].includes(tag)) {
@@ -1728,7 +2097,7 @@ sb.auth.onAuthStateChange(async function(event, session) {
   } else if (event === 'SIGNED_OUT') {
     _sessionHandled = false;
     currentUser = null;
-    S.tasks = []; S.inbox = []; S.projects = []; S.labels = []; S.locations = [];
+    S.tasks = []; S.inbox = []; S.projects = []; S.labels = []; S.locations = []; S.recurring = [];
     showLogin();
   }
 });
