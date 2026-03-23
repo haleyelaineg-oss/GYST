@@ -457,8 +457,8 @@ kbd{background:var(--surface2);border:1px solid var(--border2);border-radius:4px
 .flow-bar-btn{padding:9px 16px;border-radius:10px;border:1.5px solid var(--border);background:var(--surface);color:var(--text-mid);font-family:'Jost',sans-serif;font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:7px;box-shadow:var(--sh-sm);white-space:nowrap}
 .flow-bar-btn:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-lt)}
 .flow-bar-btn.placeholder{opacity:.6;border-style:dashed}
-.flow-bar-gyst{background:linear-gradient(135deg,#4a80b0,#6e9ec0) !important;color:#fff !important;border-color:transparent !important;box-shadow:0 2px 10px rgba(74,128,176,.35) !important}
-.flow-bar-gyst:hover{background:linear-gradient(135deg,#3a6fa0,#5a8eb0) !important;transform:translateY(-1px)}
+.flow-bar-gyst{background:var(--accent) !important;color:#fff !important;border-color:transparent !important;box-shadow:0 2px 10px rgba(74,128,176,.35) !important}
+.flow-bar-gyst:hover{background:#fff !important;color:var(--text-mid) !important;border-color:var(--accent) !important;transform:translateY(-1px)}
 
 /* DASHBOARD VIEW */
 .view-header-right{display:flex;align-items:center;gap:12px}
