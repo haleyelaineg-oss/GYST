@@ -40,6 +40,8 @@ let S = {
   labels:    [],
   locations: [],
   recurring: [],
+  todayPlan: null,
+  weeklyPlan: null,
   view: 'all',
   activeProjId: null,
   editTaskId: null,
@@ -65,6 +67,14 @@ function uid() {
   });
 }
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function todayStr() { return new Date().toISOString().slice(0, 10); }
+function tomorrowStr() { var d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); }
+function weekStartStr() {
+  var d = new Date();
+  var diff = (d.getDay() === 0) ? -6 : 1 - d.getDay(); // back to Monday
+  var mon = new Date(d); mon.setDate(d.getDate() + diff);
+  return mon.toISOString().slice(0, 10);
+}
 
 // ── DB MAPPERS ────────────────────────────────────────────────────────
 
@@ -123,6 +133,24 @@ function dbRecurringToLocal(row) {
   };
 }
 
+function dbDailyPlanToLocal(row) {
+  return {
+    id:             row.id,
+    date:           row.date,
+    timeBlocks:     row.time_blocks      || [],
+    top5TaskIds:    row.top5_task_ids    || [],
+    top3ProjectIds: row.top3_project_ids || [],
+  };
+}
+
+function dbWeeklyPlanToLocal(row) {
+  return {
+    id:              row.id,
+    weekStart:       row.week_start,
+    top5ProjectIds:  row.top5_project_ids || [],
+  };
+}
+
 // ── DATA LOADING ──────────────────────────────────────────────────────
 
 async function loadAllData() {
@@ -140,16 +168,20 @@ async function loadAllData() {
       sb.from('labels').select('name').order('name'),
       sb.from('locations').select('name').order('name'),
       sb.from('recurring_tasks').select('*').order('next_due_at', {ascending: true}),
+      sb.from('daily_plans').select('*').eq('date', todayStr()).limit(1),
+      sb.from('weekly_plans').select('*').eq('week_start', weekStartStr()).limit(1),
     ]),
     wakeTimeout,
   ]);
 
-  S.tasks     = (results[0].data || []).map(dbTaskToLocal);
-  S.projects  = (results[1].data || []).map(dbProjToLocal);
-  S.inbox     = (results[2].data || []).map(dbInboxToLocal);
-  S.labels    = (results[3].data || []).map(function(r){ return r.name; });
-  S.locations = (results[4].data || []).map(function(r){ return r.name; });
-  S.recurring = (results[5].data || []).map(dbRecurringToLocal);
+  S.tasks      = (results[0].data || []).map(dbTaskToLocal);
+  S.projects   = (results[1].data || []).map(dbProjToLocal);
+  S.inbox      = (results[2].data || []).map(dbInboxToLocal);
+  S.labels     = (results[3].data || []).map(function(r){ return r.name; });
+  S.locations  = (results[4].data || []).map(function(r){ return r.name; });
+  S.recurring  = (results[5].data || []).map(dbRecurringToLocal);
+  S.todayPlan  = (results[6].data && results[6].data[0]) ? dbDailyPlanToLocal(results[6].data[0]) : null;
+  S.weeklyPlan = (results[7].data && results[7].data[0]) ? dbWeeklyPlanToLocal(results[7].data[0]) : null;
 }
 
 // ── DB WRITE HELPERS (fire-and-forget) ───────────────────────────────
@@ -267,6 +299,30 @@ async function dbLogCompletion(taskId) {
   if (res.error) console.error('[GYST] Completion log error:', res.error);
 }
 
+async function dbUpsertDailyPlan(plan) {
+  if (!currentUser) return;
+  var res = await sb.from('daily_plans').upsert({
+    id:               plan.id,
+    user_id:          currentUser.id,
+    date:             plan.date,
+    time_blocks:      plan.timeBlocks      || [],
+    top5_task_ids:    plan.top5TaskIds     || [],
+    top3_project_ids: plan.top3ProjectIds  || [],
+  }, { onConflict: 'user_id,date' });
+  if (res.error) console.error('[GYST] DailyPlan upsert error:', res.error);
+}
+
+async function dbUpsertWeeklyPlan(plan) {
+  if (!currentUser) return;
+  var res = await sb.from('weekly_plans').upsert({
+    id:                plan.id,
+    user_id:           currentUser.id,
+    week_start:        plan.weekStart,
+    top5_project_ids:  plan.top5ProjectIds || [],
+  }, { onConflict: 'user_id,week_start' });
+  if (res.error) console.error('[GYST] WeeklyPlan upsert error:', res.error);
+}
+
 // ── AUTH ──────────────────────────────────────────────────────────────
 
 function showApp() {
@@ -341,6 +397,8 @@ async function authSubmit() {
 async function logout() {
   await sb.auth.signOut();
   S.tasks = []; S.inbox = []; S.projects = []; S.labels = []; S.locations = []; S.recurring = [];
+  S.todayPlan = null;
+  S.weeklyPlan = null;
   currentUser = null;
 }
 
@@ -537,7 +595,8 @@ function renderSidebar() {
 
 function renderMain() {
   var c = document.getElementById('mainContent');
-  if      (S.view === 'projects')  renderProjectsView(c);
+  if      (S.view === 'dashboard') renderDashboardView(c);
+  else if (S.view === 'projects')  renderProjectsView(c);
   else if (S.view === 'errands')   renderErrandsView(c);
   else if (S.view === 'project')   renderSingleProjectView(c);
   else if (S.view === 'recurring') renderRecurringView(c);
@@ -547,7 +606,7 @@ function renderMain() {
 
 function setView(v, btn) {
   S.view = v;
-  document.querySelectorAll('#vb-all,#vb-projects,#vb-errands,#vb-recurring,#vb-completed').forEach(function(b){ b.classList.remove('active'); });
+  document.querySelectorAll('#vb-all,#vb-projects,#vb-errands,#vb-recurring,#vb-completed,#vb-dashboard').forEach(function(b){ b.classList.remove('active'); });
   document.querySelectorAll('#projectList .sb-btn').forEach(function(b){ b.classList.remove('active'); });
   if (btn) btn.classList.add('active');
   renderSidebar();
@@ -1388,6 +1447,8 @@ function openAddTask(prefillTitle, prefillStatus) {
   renderTagPicker('tLabelPicker', 'label',    S.tLabels);
   renderTagPicker('tLocPicker',   'location', S.tLoc);
   buildTimeGrid('tTimeGrid', null);
+  document.getElementById('tIsRecurring').checked = false;
+  document.getElementById('tRecurringFields').style.display = 'none';
   openModal('taskModal');
   setTimeout(function(){ document.getElementById('tTitle').focus(); }, 120);
 }
@@ -1413,8 +1474,41 @@ function openEditTask(id) {
   renderTagPicker('tLabelPicker', 'label',    S.tLabels);
   renderTagPicker('tLocPicker',   'location', S.tLoc);
   buildTimeGrid('tTimeGrid', t.timeRequired || null);
+  document.getElementById('tIsRecurring').checked = false;
+  document.getElementById('tRecurringFields').style.display = 'none';
   openModal('taskModal');
   setTimeout(function(){ document.getElementById('tTitle').focus(); }, 120);
+}
+
+function toggleTaskRecurring() {
+  var on = document.getElementById('tIsRecurring').checked;
+  document.getElementById('tRecurringFields').style.display = on ? '' : 'none';
+  if (on) buildTaskFreqGrid(7);
+}
+
+function buildTaskFreqGrid(selectedDays) {
+  var grid = document.getElementById('tFreqGrid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  var isCustom = selectedDays > 0 && !FREQ_PRESETS.find(function(p){ return p.days === selectedDays; });
+  FREQ_PRESETS.forEach(function(p) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    var isSel = p.days === -1 ? isCustom : p.days === selectedDays;
+    btn.className = 'to' + (isSel ? ' sel' : '');
+    btn.dataset.days = p.days;
+    btn.textContent = p.label;
+    btn.onclick = function() {
+      document.querySelectorAll('#tFreqGrid .to').forEach(function(b){ b.classList.remove('sel'); });
+      btn.classList.add('sel');
+      var wrap = document.getElementById('tFreqCustomRow');
+      wrap.style.display = p.days === -1 ? 'flex' : 'none';
+      if (p.days === -1) document.getElementById('tCustomDays').focus();
+    };
+    grid.appendChild(btn);
+  });
+  document.getElementById('tFreqCustomRow').style.display = isCustom ? 'flex' : 'none';
+  if (isCustom) document.getElementById('tCustomDays').value = selectedDays;
 }
 
 function saveTask() {
@@ -1429,6 +1523,27 @@ function saveTask() {
   var labels       = S.tLabels.slice();
   var location     = S.tLoc[0] || null;
   var timeRequired = (document.querySelector('#tTimeGrid .to.sel') || {dataset:{}}).dataset.t || null;
+
+  // Convert to recurring task if toggle is on
+  if (document.getElementById('tIsRecurring').checked) {
+    var freqBtn = document.querySelector('#tFreqGrid .to.sel');
+    var days    = freqBtn ? parseInt(freqBtn.dataset.days, 10) : 7;
+    if (days === -1) days = parseInt(document.getElementById('tCustomDays').value, 10) || 7;
+    var rec = {
+      id: uid(), title: title, notes: notes, intervalDays: days,
+      labels: labels, location: location, timeRequired: timeRequired,
+      lastCompletedAt: null, nextDueAt: todayStr(), active: true, created: Date.now(),
+    };
+    S.recurring.push(rec);
+    dbUpsertRecurring(rec);
+    if (S.editTaskId) {
+      S.tasks = S.tasks.filter(function(t){ return t.id !== S.editTaskId; });
+      dbDeleteTask(S.editTaskId);
+    }
+    renderAll(); closeModal('taskModal');
+    showToast('<span>Converted to recurring task!</span>');
+    return;
+  }
 
   if (projAssign) {
     var proj = S.projects.find(function(p){ return p.id === projAssign; });
@@ -1623,6 +1738,558 @@ function saveStep() {
 
   renderAll(); closeModal('taskModal');
   S.editStepProjId = null; S.editStepId = null;
+}
+
+// ── DASHBOARD VIEW ────────────────────────────────────────────────────
+
+// Reusable task row for dashboard sections
+function dbTaskRow(t) {
+  var row = document.createElement('div');
+  row.className = 'dashboard-task-row' + (t.done ? ' done' : '');
+  var cb = document.createElement('input');
+  cb.type = 'checkbox'; cb.checked = !!t.done; cb.className = 'dashboard-task-check';
+  cb.onchange = (function(task){ return function(){ toggleTask(task.id); }; })(t);
+  var body = document.createElement('div');
+  body.className = 'dashboard-task-body';
+  var timeBadge = '';
+  if (t.timeRequired) {
+    var to = TIME_OPTS.find(function(o){ return o.id === t.timeRequired; });
+    if (to) timeBadge = ' <span class="ac-time">'+to.label+'</span>';
+  }
+  body.innerHTML = '<span class="dashboard-task-title'+(t.done ? ' crossed' : '')+'">'+esc(t.title)+'</span>'+timeBadge;
+  row.appendChild(cb); row.appendChild(body);
+  return row;
+}
+
+function renderDashboardView(c) {
+  c.innerHTML = '';
+  var dateLabel = new Date().toLocaleDateString('en-US', {weekday:'long', month:'long', day:'numeric'});
+
+  var header = document.createElement('div');
+  header.className = 'view-header';
+  header.innerHTML = '<h2 class="view-title">Dashboard</h2>'
+    + '<div class="view-header-right">'
+    + '<span class="dashboard-date">'+dateLabel+'</span>'
+    + '<button class="btn-sm" onclick="openPlanMyDay()">'+(S.todayPlan ? 'Update Plan' : '+ Plan My Day')+'</button>'
+    + '</div>';
+  c.appendChild(header);
+
+  if (!S.todayPlan) {
+    var empty = document.createElement('div');
+    empty.className = 'dashboard-empty';
+    empty.innerHTML = '<div class="dashboard-empty-icon">📅</div>'
+      + '<h3>No plan yet for today</h3>'
+      + '<p>Start your day with intention — set your time blocks, top projects, and priority tasks.</p>'
+      + '<button class="btn-save" onclick="openPlanMyDay()">Plan My Day →</button>';
+    c.appendChild(empty);
+    return;
+  }
+
+  var plan = S.todayPlan;
+
+  // ── Time Blocks (with embedded task checkboxes if Start My Day ran) ──
+  if (plan.timeBlocks && plan.timeBlocks.length) {
+    var blocksHaveTasks = plan.timeBlocks.some(function(b){ return b.taskIds && b.taskIds.length; });
+    var tbSec = document.createElement('div');
+    tbSec.className = 'dashboard-section';
+    tbSec.innerHTML = '<div class="dashboard-section-title">Time Blocks</div>';
+    var tbGrid = document.createElement('div');
+    tbGrid.className = 'dashboard-tb-grid';
+    plan.timeBlocks.forEach(function(b) {
+      var card = document.createElement('div');
+      card.className = 'dashboard-tb-card';
+      var header = document.createElement('div');
+      header.innerHTML = '<div class="tb-card-label">'+esc(b.label)+'</div>'
+        + (b.subtitle ? '<div class="tb-card-subtitle">'+esc(b.subtitle)+'</div>' : '');
+      card.appendChild(header);
+      // Show tasks assigned to this block
+      if (b.taskIds && b.taskIds.length) {
+        b.taskIds.forEach(function(tid) {
+          var t = S.tasks.find(function(x){ return x.id === tid; });
+          if (!t) return;
+          var taskRow = document.createElement('div');
+          taskRow.className = 'tb-task-row' + (t.done ? ' done' : '');
+          var cb = document.createElement('input');
+          cb.type = 'checkbox'; cb.checked = !!t.done; cb.className = 'dashboard-task-check';
+          cb.onchange = (function(task){ return function(){ toggleTask(task.id); }; })(t);
+          var nameEl = document.createElement('span');
+          nameEl.className = 'tb-task-title' + (t.done ? ' crossed' : '');
+          nameEl.textContent = t.title;
+          taskRow.appendChild(cb); taskRow.appendChild(nameEl);
+          card.appendChild(taskRow);
+        });
+      }
+      tbGrid.appendChild(card);
+    });
+    tbSec.appendChild(tbGrid);
+    c.appendChild(tbSec);
+
+    // Unassigned tasks from today's plan (shown below blocks if some tasks aren't assigned)
+    var assignedIds = [];
+    plan.timeBlocks.forEach(function(b){ (b.taskIds||[]).forEach(function(id){ assignedIds.push(id); }); });
+    var unassigned = (plan.top5TaskIds||[])
+      .filter(function(id){ return assignedIds.indexOf(id) === -1; })
+      .map(function(id){ return S.tasks.find(function(x){ return x.id === id && !x.done; }); })
+      .filter(Boolean);
+    if (unassigned.length && blocksHaveTasks) {
+      var unaSec = document.createElement('div');
+      unaSec.className = 'dashboard-section';
+      unaSec.innerHTML = '<div class="dashboard-section-title">Unassigned Tasks</div>';
+      unassigned.forEach(function(t) {
+        var row = dbTaskRow(t);
+        unaSec.appendChild(row);
+      });
+      c.appendChild(unaSec);
+    }
+  }
+
+  // ── Today's Tasks (if no block assignments yet) ──
+  var blocksHaveAnyTasks = plan.timeBlocks && plan.timeBlocks.some(function(b){ return b.taskIds && b.taskIds.length; });
+  if (!blocksHaveAnyTasks) {
+    var taskIds  = plan.top5TaskIds || [];
+    var validTasks = taskIds.map(function(tid){ return S.tasks.find(function(x){ return x.id === tid; }); }).filter(Boolean);
+    if (validTasks.length) {
+      var taskSec = document.createElement('div');
+      taskSec.className = 'dashboard-section';
+      taskSec.innerHTML = '<div class="dashboard-section-title">Today\'s Tasks</div>';
+      validTasks.forEach(function(t) { taskSec.appendChild(dbTaskRow(t)); });
+      c.appendChild(taskSec);
+    }
+  }
+
+  // ── Focus Projects ──
+  var projIds = plan.top3ProjectIds || [];
+  var validProjs = projIds.map(function(pid){ return S.projects.find(function(x){ return x.id === pid; }); }).filter(Boolean);
+  if (validProjs.length) {
+    var projSec = document.createElement('div');
+    projSec.className = 'dashboard-section';
+    projSec.innerHTML = '<div class="dashboard-section-title">Focus Projects</div>';
+    validProjs.forEach(function(p) {
+      var pg = progress(p);
+      var ns = nextStep(p);
+      var card = document.createElement('div');
+      card.className = 'dashboard-proj-card';
+      card.innerHTML = '<div class="dp-proj-header">'
+        + '<span class="dp-proj-name">'+esc(p.name)+'</span>'
+        + (pg.total ? '<span class="dp-proj-pct">'+pg.pct+'%</span>' : '')
+        + '</div>'
+        + (pg.total ? '<div class="dp-proj-bar"><div class="dp-proj-fill" style="width:'+pg.pct+'%"></div></div>' : '')
+        + (ns ? '<div class="dp-proj-next">Next: '+esc(ns.title)+'</div>'
+               : '<div class="dp-proj-next dp-proj-done">All steps complete!</div>');
+      card.onclick = (function(proj){ return function(){ S.activeProjId = proj.id; setView('project', null); }; })(p);
+      projSec.appendChild(card);
+    });
+    c.appendChild(projSec);
+  }
+
+  // ── Weekly Focus Projects ──
+  if (S.weeklyPlan && S.weeklyPlan.top5ProjectIds.length) {
+    var weeklyIds   = S.weeklyPlan.top5ProjectIds;
+    var weeklyProjs = weeklyIds.map(function(pid){ return S.projects.find(function(x){ return x.id === pid; }); }).filter(Boolean);
+    if (weeklyProjs.length) {
+      var weeklySec = document.createElement('div');
+      weeklySec.className = 'dashboard-section';
+      weeklySec.innerHTML = '<div class="dashboard-section-title">This Week\'s Focus</div>';
+      weeklyProjs.forEach(function(p) {
+        var pg   = progress(p);
+        var ns   = nextStep(p);
+        var card = document.createElement('div');
+        card.className = 'dashboard-proj-card';
+        card.innerHTML = '<div class="dp-proj-header">'
+          + '<span class="dp-proj-name">'+esc(p.name)+'</span>'
+          + (pg.total ? '<span class="dp-proj-pct">'+pg.pct+'%</span>' : '')
+          + '</div>'
+          + (pg.total ? '<div class="dp-proj-bar"><div class="dp-proj-fill" style="width:'+pg.pct+'%"></div></div>' : '')
+          + (ns ? '<div class="dp-proj-next">Next: '+esc(ns.title)+'</div>'
+                : '<div class="dp-proj-next dp-proj-done">All steps complete!</div>');
+        card.onclick = (function(proj){ return function(){ S.activeProjId = proj.id; setView('project', null); }; })(p);
+        weeklySec.appendChild(card);
+      });
+      c.appendChild(weeklySec);
+    }
+  }
+}
+
+// ── PLANNING FLOWS ────────────────────────────────────────────────────
+
+// ── SHARED HELPERS ──────────────────────────────────────────────────
+
+function dpProgressHtml(currentStep) {
+  var steps = window._dpSteps || [];
+  if (!steps.length) return '';
+  return '<div class="dp-progress">'
+    + steps.map(function(s, i) {
+        var n = i + 1;
+        var cls = n < currentStep ? 'dp-step done' : n === currentStep ? 'dp-step active' : 'dp-step';
+        return '<div class="'+cls+'"><span class="dp-step-num">'+(n < currentStep ? '✓' : n)+'</span>'
+          + '<span class="dp-step-label">'+s+'</span></div>'
+          + (i < steps.length - 1 ? '<div class="dp-step-line'+(n < currentStep ? ' done' : '')+'"></div>' : '');
+      }).join('')
+    + '</div>';
+}
+
+function dpPickItem(id, name, meta, isSel, onclickStr) {
+  return '<div class="dp-pick-item'+(isSel ? ' sel' : '')+'" onclick="'+onclickStr+'">'
+    + '<div class="dp-pick-check">'+(isSel ? '✓' : '')+'</div>'
+    + '<div class="dp-pick-body"><div class="dp-pick-name">'+esc(name)+'</div>'
+    + (meta ? '<div class="dp-pick-meta">'+meta+'</div>' : '')
+    + '</div></div>';
+}
+
+function dpToggleGeneric(id, arr, el, max, maxMsg) {
+  var i = arr.indexOf(id);
+  if (i !== -1) {
+    arr.splice(i, 1);
+    el.classList.remove('sel');
+    el.querySelector('.dp-pick-check').textContent = '';
+  } else {
+    if (max && arr.length >= max) { showToast('<span>'+maxMsg+'</span>'); return; }
+    arr.push(id);
+    el.classList.add('sel');
+    el.querySelector('.dp-pick-check').textContent = '✓';
+  }
+}
+
+// Collect block inputs into window._dpBlocks (preserves existing taskIds)
+function dpCollectBlocks() {
+  var rows = document.querySelectorAll('#dpBlockList .dp-block-edit-row');
+  var old  = window._dpBlocks || [];
+  window._dpBlocks = [];
+  rows.forEach(function(row, i) {
+    var label    = (row.querySelector('.dp-block-label-inp').value || '').trim();
+    var subtitle = (row.querySelector('.dp-block-sub-inp').value   || '').trim();
+    var taskIds  = (old[i] && old[i].taskIds) ? old[i].taskIds : [];
+    if (label) window._dpBlocks.push({ label: label, subtitle: subtitle || null, taskIds: taskIds });
+  });
+}
+
+function dpAddBlockRow() {
+  var list = document.getElementById('dpBlockList');
+  var n    = list.querySelectorAll('.dp-block-edit-row').length + 1;
+  var row  = document.createElement('div');
+  row.className = 'dp-block-edit-row';
+  row.innerHTML = '<input class="fi dp-block-label-inp" value="Block '+n+'" style="flex:0 0 90px;min-width:0"/>'
+    + '<span class="dp-time-sep">:</span>'
+    + '<input class="fi dp-block-sub-inp" placeholder="What\'s this block for?" style="flex:1;min-width:0"/>'
+    + '<button class="ic-btn del" onclick="this.closest(\'.dp-block-edit-row\').remove()" title="Remove">✕</button>';
+  list.appendChild(row);
+  row.querySelector('.dp-block-sub-inp').focus();
+}
+
+function dpRenderBlockInputs() {
+  var list = document.getElementById('dpBlockList');
+  if (!list) return;
+  window._dpBlocks.forEach(function(b) {
+    var row = document.createElement('div');
+    row.className = 'dp-block-edit-row';
+    row.innerHTML = '<input class="fi dp-block-label-inp" value="'+esc(b.label)+'" style="flex:0 0 90px;min-width:0"/>'
+      + '<span class="dp-time-sep">:</span>'
+      + '<input class="fi dp-block-sub-inp" placeholder="What\'s this block for?" value="'+(b.subtitle ? esc(b.subtitle) : '')+'" style="flex:1;min-width:0"/>'
+      + '<button class="ic-btn del" onclick="this.closest(\'.dp-block-edit-row\').remove()" title="Remove">✕</button>';
+    list.appendChild(row);
+  });
+}
+
+// Reflection stored in localStorage (no SQL needed)
+function saveReflectionLocal(r) {
+  localStorage.setItem('gyst-reflect-'+todayStr(), JSON.stringify(r));
+}
+function loadReflectionLocal() {
+  try { return JSON.parse(localStorage.getItem('gyst-reflect-'+todayStr()) || 'null'); } catch(e) { return null; }
+}
+
+// ── END MY DAY FLOW (3 steps: Reflection → Day Review → Plan Tomorrow) ──
+
+function openEndMyDay() {
+  window._dpSteps    = ['Reflection', 'Day Review', "Tomorrow's Plan"];
+  window._eodProjIds = [];
+  window._eodTaskIds = [];
+  window._eodReflection = loadReflectionLocal() || { highlights: '', learnings: '', gratitude: '' };
+  // Pre-check incomplete tasks from today's plan as suggested for tomorrow
+  if (S.todayPlan && S.todayPlan.top5TaskIds) {
+    S.todayPlan.top5TaskIds.forEach(function(id) {
+      var t = S.tasks.find(function(t){ return t.id === id && !t.done; });
+      if (t) window._eodTaskIds.push(t.id);
+    });
+  }
+  // Pre-check today's projects
+  if (S.todayPlan && S.todayPlan.top3ProjectIds) {
+    window._eodProjIds = S.todayPlan.top3ProjectIds.slice();
+  }
+  eodStep1();
+  openModal('dayPlanModal');
+}
+
+function eodStep1() {
+  var c = document.getElementById('dayPlanContent');
+  var r = window._eodReflection || {};
+  c.innerHTML = dpProgressHtml(1)
+    + '<h3>End of Day Reflection</h3>'
+    + '<p class="modal-sub">Take a moment to close out your day with intention.</p>'
+    + '<div class="fg"><label class="fl">Highlights <span class="fl-opt">What went well today?</span></label>'
+    + '<textarea class="fta" id="eodHighlights" placeholder="The client call went great, finally shipped that feature…" style="min-height:70px">'+esc(r.highlights||'')+'</textarea></div>'
+    + '<div class="fg"><label class="fl">Learnings <span class="fl-opt">What did you discover or figure out?</span></label>'
+    + '<textarea class="fta" id="eodLearnings" placeholder="Found a better way to structure this, learned that…" style="min-height:70px">'+esc(r.learnings||'')+'</textarea></div>'
+    + '<div class="fg"><label class="fl">Gratitude <span class="fl-opt">One thing you\'re grateful for</span></label>'
+    + '<input class="fi" id="eodGratitude" placeholder="Grateful for…" value="'+esc(r.gratitude||'')+'"/></div>'
+    + '<div class="modal-actions">'
+    + '<button class="btn-cancel" onclick="closeModal(\'dayPlanModal\')">Cancel</button>'
+    + '<button class="btn-save" onclick="eodSaveReflection();eodStep2()">Next →</button>'
+    + '</div>';
+}
+
+function eodSaveReflection() {
+  window._eodReflection = {
+    highlights: (document.getElementById('eodHighlights').value || '').trim(),
+    learnings:  (document.getElementById('eodLearnings').value  || '').trim(),
+    gratitude:  (document.getElementById('eodGratitude').value  || '').trim(),
+  };
+  saveReflectionLocal(window._eodReflection);
+}
+
+function eodStep2() {
+  var c = document.getElementById('dayPlanContent');
+  var today = todayStr();
+  var completedToday = S.tasks.filter(function(t) {
+    return t.done && t.completedAt && t.completedAt.slice(0,10) === today;
+  });
+  var incompletePlan = (S.todayPlan && S.todayPlan.top5TaskIds || [])
+    .map(function(id){ return S.tasks.find(function(t){ return t.id === id && !t.done; }); })
+    .filter(Boolean);
+
+  c.innerHTML = dpProgressHtml(2)
+    + '<h3>Today\'s Progress</h3>'
+    + '<p class="modal-sub">Here\'s how your day went.</p>'
+    + (completedToday.length
+        ? '<div class="eod-section-label">Completed today ('+completedToday.length+')</div>'
+          + completedToday.map(function(t){
+              return '<div class="eod-review-row done"><span class="eod-check">✓</span>'+esc(t.title)+'</div>';
+            }).join('')
+        : '<div class="dp-empty" style="margin:8px 0">No tasks completed today</div>')
+    + (incompletePlan.length
+        ? '<div class="eod-section-label" style="margin-top:14px">Didn\'t get to</div>'
+          + incompletePlan.map(function(t){
+              return '<div class="eod-review-row"><span class="eod-check eod-check-empty">○</span>'+esc(t.title)+'</div>';
+            }).join('')
+        : '')
+    + '<div class="modal-actions">'
+    + '<button class="btn-cancel" onclick="eodStep1()">← Back</button>'
+    + '<button class="btn-save" onclick="eodStep3()">Next →</button>'
+    + '</div>';
+}
+
+function eodStep3() {
+  var c = document.getElementById('dayPlanContent');
+  var statusOrder = ['timesensitive','active','todo','errands','someday','onhold','waiting'];
+
+  // Suggested: incomplete from today's plan (pre-checked)
+  var suggestedIds = (S.todayPlan && S.todayPlan.top5TaskIds || []);
+  var suggestedTasks = suggestedIds
+    .map(function(id){ return S.tasks.find(function(t){ return t.id === id && !t.done; }); })
+    .filter(Boolean);
+
+  // Due/upcoming recurring tasks (informational banner)
+  var dueCount = S.recurring.filter(function(r){
+    var s = recurringDueStatus(r);
+    return r.active && (s === 'overdue' || s === 'today' || s === 'soon');
+  }).length;
+
+  // All other active tasks not in suggested
+  var sugIds = suggestedTasks.map(function(t){ return t.id; });
+  var otherTasks = S.tasks.filter(function(t){
+    return !t.done && sugIds.indexOf(t.id) === -1;
+  }).sort(function(a, b){
+    return (statusOrder.indexOf(a.status) - statusOrder.indexOf(b.status)) || a.created - b.created;
+  });
+
+  var activeProjs = S.projects.filter(function(p){ return !p.completed && (!p.projStatus || p.projStatus === 'active'); });
+
+  c.innerHTML = dpProgressHtml(3)
+    + '<h3>Plan for Tomorrow</h3>'
+    + '<p class="modal-sub">Pick the tasks and projects you\'ll tackle tomorrow.</p>'
+
+    // Recurring reminder banner
+    + (dueCount ? '<div class="eod-recurring-banner">📋 '+dueCount+' recurring task'+(dueCount>1?'s':'')+' due/upcoming — check them off in the Recurring view.</div>' : '')
+
+    // Suggested tasks (pre-checked)
+    + (suggestedTasks.length
+        ? '<div class="eod-section-label">Suggested — unfinished from today</div>'
+          + '<div class="dp-pick-list">'
+          + suggestedTasks.map(function(t) {
+              var sel = window._eodTaskIds.indexOf(t.id) !== -1;
+              var st  = STATUSES.find(function(s){ return s.id === t.status; });
+              return dpPickItem(t.id, t.title, st ? st.label : '', sel, 'eodToggleTask(\''+t.id+'\',this)');
+            }).join('')
+          + '</div>'
+        : '')
+
+    // Other tasks
+    + (otherTasks.length
+        ? '<div class="eod-section-label'+(suggestedTasks.length ? ' eod-section-other' : '')+'">All tasks</div>'
+          + '<div class="dp-pick-list">'
+          + otherTasks.map(function(t) {
+              var sel = window._eodTaskIds.indexOf(t.id) !== -1;
+              var st  = STATUSES.find(function(s){ return s.id === t.status; });
+              return dpPickItem(t.id, t.title, st ? st.label : '', sel, 'eodToggleTask(\''+t.id+'\',this)');
+            }).join('')
+          + '</div>'
+        : (!suggestedTasks.length ? '<div class="dp-empty">No active tasks yet</div>' : ''))
+
+    // Projects
+    + '<div class="eod-section-label eod-section-other">Focus projects for tomorrow <span class="fl-opt">(up to 3)</span></div>'
+    + '<div class="dp-pick-list">'
+    + (activeProjs.length
+        ? activeProjs.map(function(p) {
+            var sel = window._eodProjIds.indexOf(p.id) !== -1;
+            var pg  = progress(p);
+            return dpPickItem(p.id, p.name, pg.total ? pg.done+'/'+pg.total+' steps' : 'No steps yet', sel, 'eodToggleProj(\''+p.id+'\',this)');
+          }).join('')
+        : '<div class="dp-empty">No active projects</div>')
+    + '</div>'
+
+    + '<div class="modal-actions">'
+    + '<button class="btn-cancel" onclick="eodStep2()">← Back</button>'
+    + '<button class="btn-save" onclick="eodSave()">Done — Good night!</button>'
+    + '</div>';
+}
+
+function eodToggleTask(id, el) { dpToggleGeneric(id, window._eodTaskIds, el, 0, ''); }
+function eodToggleProj(id, el)  { dpToggleGeneric(id, window._eodProjIds, el, 3, 'Max 3 projects — deselect one first'); }
+
+function eodSave() {
+  var plan = { id: uid(), date: tomorrowStr() };
+  plan.timeBlocks     = [];
+  plan.top5TaskIds    = window._eodTaskIds.slice();
+  plan.top3ProjectIds = window._eodProjIds.slice();
+  dbUpsertDailyPlan(plan);
+  closeModal('dayPlanModal');
+  showToast("<span>Tomorrow's plan saved! Good night.</span>");
+}
+
+// ── START MY DAY FLOW (2 steps: Time Blocks → Assign Tasks) ─────────
+
+function openStartMyDay() {
+  var plan = S.todayPlan;
+  // If there's no pre-planned tasks/projects, just go straight to dashboard
+  if (!plan || (!plan.top5TaskIds.length && !plan.top3ProjectIds.length)) {
+    setView('dashboard', document.getElementById('vb-dashboard'));
+    return;
+  }
+  window._dpSteps = ['Time Blocks', 'Assign Tasks'];
+  // Pre-populate blocks from existing plan (or defaults)
+  window._dpBlocks = plan.timeBlocks && plan.timeBlocks.length
+    ? plan.timeBlocks.map(function(b){ return { label: b.label, subtitle: b.subtitle||null, taskIds: b.taskIds||[] }; })
+    : [{label:'Block 1', subtitle:null, taskIds:[]}, {label:'Block 2', subtitle:null, taskIds:[]}, {label:'Block 3', subtitle:null, taskIds:[]}];
+  // Task pool: tasks selected in End My Day
+  window._dpDayTaskIds = (plan.top5TaskIds || []).slice();
+  smdStep1();
+  openModal('dayPlanModal');
+}
+
+// Alias: "Update Plan" on dashboard opens Start My Day
+function openPlanMyDay() { openStartMyDay(); }
+
+function smdStep1() {
+  var c = document.getElementById('dayPlanContent');
+  c.innerHTML = dpProgressHtml(1)
+    + '<h3>Set Up Your Time Blocks</h3>'
+    + '<p class="modal-sub">Name your blocks for today. You\'ll assign tasks to them next.</p>'
+    + '<div id="dpBlockList"></div>'
+    + '<button class="btn-secondary" onclick="dpAddBlockRow()" style="margin:6px 0 16px">+ Add Block</button>'
+    + '<div class="modal-actions">'
+    + '<button class="btn-cancel" onclick="closeModal(\'dayPlanModal\')">Cancel</button>'
+    + '<button class="btn-save" onclick="dpCollectBlocks();smdStep2()">Next →</button>'
+    + '</div>';
+  dpRenderBlockInputs();
+}
+
+function smdStep2() {
+  var c = document.getElementById('dayPlanContent');
+  var taskPool = window._dpDayTaskIds
+    .map(function(id){ return S.tasks.find(function(t){ return t.id === id && !t.done; }); })
+    .filter(Boolean);
+
+  // Build task→block map from current block assignments
+  window._dpTaskBlockMap = {};
+  window._dpBlocks.forEach(function(b, bi) {
+    (b.taskIds || []).forEach(function(tid){ window._dpTaskBlockMap[tid] = bi; });
+  });
+
+  c.innerHTML = dpProgressHtml(2)
+    + '<h3>Assign Tasks to Blocks</h3>'
+    + '<p class="modal-sub">Drop each task into a time block for today.</p>'
+    + (taskPool.length
+        ? '<div class="smd-assign-list">'
+          + taskPool.map(function(t) {
+              var bi = window._dpTaskBlockMap.hasOwnProperty(t.id) ? window._dpTaskBlockMap[t.id] : -1;
+              var opts = '<option value="-1"'+(bi===-1?' selected':'')+'>Unassigned</option>'
+                + window._dpBlocks.map(function(b, i){
+                    return '<option value="'+i+'"'+(bi===i?' selected':'')+'>'+esc(b.label)+(b.subtitle?' — '+esc(b.subtitle):'')+'</option>';
+                  }).join('');
+              return '<div class="smd-task-row">'
+                + '<span class="smd-task-name">'+esc(t.title)+'</span>'
+                + '<select class="smd-block-select" onchange="window._dpTaskBlockMap[\''+t.id+'\']=parseInt(this.value,10)">'+opts+'</select>'
+                + '</div>';
+            }).join('')
+          + '</div>'
+        : '<div class="dp-empty">No tasks in today\'s plan.<br><small>Use End My Day to pre-select tasks for tomorrow.</small></div>')
+    + '<div class="modal-actions">'
+    + '<button class="btn-cancel" onclick="smdStep1()">← Back</button>'
+    + '<button class="btn-save" onclick="smdSave()">Start My Day →</button>'
+    + '</div>';
+}
+
+function smdSave() {
+  // Rebuild blocks with task assignments
+  var blocks = window._dpBlocks.map(function(b){
+    return { label: b.label, subtitle: b.subtitle, taskIds: [] };
+  });
+  Object.keys(window._dpTaskBlockMap).forEach(function(tid) {
+    var bi = window._dpTaskBlockMap[tid];
+    if (bi >= 0 && bi < blocks.length) blocks[bi].taskIds.push(tid);
+  });
+  var plan = S.todayPlan || { id: uid(), date: todayStr() };
+  plan.timeBlocks = blocks;
+  S.todayPlan = plan;
+  dbUpsertDailyPlan(plan);
+  closeModal('dayPlanModal');
+  setView('dashboard', document.getElementById('vb-dashboard'));
+}
+
+// ── WEEKLY REVIEW (separate flow) ───────────────────────────────────
+
+function openWeeklyReview() {
+  window._dpSteps = [];  // no progress bar — single step
+  window._dpWeeklyProjIds = S.weeklyPlan ? S.weeklyPlan.top5ProjectIds.slice() : [];
+  var c = document.getElementById('dayPlanContent');
+  var allProjs = S.projects.filter(function(p){ return !p.completed; });
+  c.innerHTML = '<h3>Weekly Review</h3>'
+    + '<p class="modal-sub">Which 5 projects are you driving forward this week?</p>'
+    + '<div class="dp-pick-list">'
+    + (allProjs.length
+        ? allProjs.map(function(p) {
+            var sel = window._dpWeeklyProjIds.indexOf(p.id) !== -1;
+            var pg  = progress(p);
+            return dpPickItem(p.id, p.name, pg.total ? pg.done+'/'+pg.total+' steps' : 'No steps yet', sel, 'dpToggleWeeklyProj(\''+p.id+'\',this)');
+          }).join('')
+        : '<div class="dp-empty">No projects yet</div>')
+    + '</div>'
+    + '<div class="modal-actions">'
+    + '<button class="btn-cancel" onclick="closeModal(\'dayPlanModal\')">Cancel</button>'
+    + '<button class="btn-save" onclick="dpSaveWeekly()">Save Weekly Focus →</button>'
+    + '</div>';
+  openModal('dayPlanModal');
+}
+
+function dpToggleWeeklyProj(id, el) { dpToggleGeneric(id, window._dpWeeklyProjIds, el, 5, 'Max 5 projects — deselect one first'); }
+
+function dpSaveWeekly() {
+  var plan = S.weeklyPlan || { id: uid(), weekStart: weekStartStr() };
+  plan.top5ProjectIds = window._dpWeeklyProjIds.slice();
+  S.weeklyPlan = plan;
+  dbUpsertWeeklyPlan(plan);
+  closeModal('dayPlanModal');
+  renderMain(); // refresh dashboard if visible
 }
 
 // ── SETTINGS ──────────────────────────────────────────────────────────
@@ -2047,9 +2714,9 @@ document.querySelectorAll('.modal-overlay').forEach(function(o) {
 });
 
 document.addEventListener('keydown', function(e) {
-  if (e.key === 'Escape') ['taskModal','projectModal','stepModal','gystModal','settingsModal','captureModal','recurringModal'].forEach(closeModal);
+  if (e.key === 'Escape') ['taskModal','projectModal','stepModal','gystModal','settingsModal','captureModal','recurringModal','dayPlanModal'].forEach(closeModal);
   if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
-    var anyModalOpen = ['taskModal','projectModal','stepModal','gystModal','settingsModal','captureModal','recurringModal'].some(function(id) {
+    var anyModalOpen = ['taskModal','projectModal','stepModal','gystModal','settingsModal','captureModal','recurringModal','dayPlanModal'].some(function(id) {
       var el = document.getElementById(id);
       return el && el.classList.contains('open');
     });

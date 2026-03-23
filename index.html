@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GYST — Get Your Shit Together</title>
+<title>GYST — Get Your Sh*t Together</title>
 <link href="https://fonts.googleapis.com/css2?family=Jost:wght@200;300;400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <style>
@@ -98,7 +98,7 @@
   <div class="login-box">
     <div class="login-logo">
       <div class="logo-word">GY<span>ST</span></div>
-      <div class="logo-tagline">Get Your Shit Together</div>
+      <div class="logo-tagline">Get Your Sh*t Together</div>
     </div>
     <h2 id="authTitle" style="margin:0;font-size:18px">Sign In</h2>
     <div class="fg">
@@ -129,11 +129,11 @@
     <div class="header-right">
       <div class="kbd-hint"><kbd>⌘</kbd><kbd>K</kbd> New Task</div>
       <button class="btn btn-capture" onclick="openCapture()" id="captureBtn">
-        <span>⊕ Capture</span>
+        <span> ✎ Capture</span>
         <span class="capture-badge" id="captureBadge" style="display:none"></span>
       </button>
-      <button class="btn btn-secondary" onclick="openAddTask()">+ New Task</button>
-      <button class="btn btn-secondary" onclick="openAddProject()">+ New Project</button>
+      <button class="btn btn-secondary" onclick="openAddTask()">﹢ New Task</button>
+      <button class="btn btn-secondary" onclick="openAddProject()">﹢ New Project</button>
       <div class="auth-user-row">
         <span class="auth-user-email" id="authUserEmail"></span>
         <button class="btn-icon" onclick="openSettings()" title="Settings">⚙</button>
@@ -148,6 +148,9 @@
       <!-- VIEWS -->
       <div class="sb-section">
         <div class="sb-label">Views</div>
+        <button class="sb-btn" id="vb-dashboard" onclick="setView('dashboard',this)">
+          <div class="sb-btn-inner"><span class="sb-name">Dashboard</span></div>
+        </button>
         <button class="sb-btn active" id="vb-all" onclick="setView('all',this)">
           <div class="sb-btn-inner"><span class="sb-name">Tasks</span></div>
           <span class="sb-count" id="cnt-all"></span>
@@ -174,7 +177,7 @@
         <div class="sb-collapsible-header" onclick="toggleSBSection('labelSection','labelChevron')">
           <div class="sb-collapsible-left">
             <span class="sb-label">Filter by Label</span>
-            <span class="sb-chevron collapsed" id="labelChevron">▼</span>
+            <span class="sb-chevron collapsed" id="labelChevron">▿</span>
           </div>
         </div>
         <div class="sb-collapsible-body hidden" id="labelSection">
@@ -188,7 +191,7 @@
         <div class="sb-collapsible-header" onclick="toggleSBSection('locSection','locChevron')">
           <div class="sb-collapsible-left">
             <span class="sb-label">Filter by Location</span>
-            <span class="sb-chevron collapsed" id="locChevron">▼</span>
+            <span class="sb-chevron collapsed" id="locChevron">▿</span>
           </div>
         </div>
         <div class="sb-collapsible-body hidden" id="locSection">
@@ -203,8 +206,9 @@
       <!-- FLOWS BAR -->
       <div class="flows-bar">
         <button class="flow-bar-btn flow-bar-gyst" onclick="openGYST()">⚡ Get Your Shit Together</button>
-        <button class="flow-bar-btn placeholder" onclick="alert('Start Work flow coming soon!')">▶ Start Work</button>
-        <button class="flow-bar-btn placeholder" onclick="alert('End Work flow coming soon!')">■ End Work</button>
+        <button class="flow-bar-btn" onclick="openStartMyDay()">☼ Start My Day</button>
+        <button class="flow-bar-btn" onclick="openEndMyDay()">≚ End My Day</button>
+        <button class="flow-bar-btn" onclick="openWeeklyReview()">⧆ Weekly Review</button>
       </div>
 
       <div class="search-bar">
@@ -256,11 +260,29 @@
       </div>
     </div>
     <div class="fg">
-      <label class="fl">Location <span class="fl-opt">(optional — context for where)</span></label>
+      <label class="fl">Location <span class="fl-opt">(optional — context)</span></label>
       <div class="tag-picker" id="tLocPicker"></div>
       <div class="quick-add-row">
         <input class="fi quick-add-input" id="tNewLoc" type="text" placeholder="New location…" onkeydown="if(event.key==='Enter'){event.preventDefault();quickAdd('location','task')}"/>
         <button type="button" class="quick-add-btn" onclick="quickAdd('location','task')">Add</button>
+      </div>
+    </div>
+    <div class="fdiv"></div>
+    <div class="fg">
+      <label class="fl">Make Recurring? <span class="fl-opt">(converts this into a recurring task)</span></label>
+      <label class="task-recurring-toggle">
+        <input type="checkbox" id="tIsRecurring" onchange="toggleTaskRecurring()"/>
+        <span>Turn into a recurring task</span>
+      </label>
+    </div>
+    <div id="tRecurringFields" style="display:none">
+      <div class="fg">
+        <label class="fl">Frequency</label>
+        <div class="time-grid" id="tFreqGrid"></div>
+        <div class="freq-custom-row" id="tFreqCustomRow" style="display:none;margin-top:8px">
+          <input class="fi" id="tCustomDays" type="number" min="1" max="365" placeholder="days" style="width:80px"/>
+          <span style="color:var(--text-dim);font-size:13px;margin-left:8px">days between completions</span>
+        </div>
       </div>
     </div>
     <div class="modal-actions">
@@ -453,7 +475,7 @@
 <!-- CAPTURE MODAL -->
 <div class="modal-overlay" id="captureModal">
   <div class="modal" style="max-width:420px">
-    <h2>⊕ Capture</h2>
+    <h2>✎ Capture</h2>
     <p class="modal-sub">Don't think — just dump it. You'll sort it out in GYST.</p>
     <div class="fg">
       <label class="fl">What's on your mind?</label>
@@ -468,6 +490,13 @@
       <button class="btn-save" onclick="saveCapture(false)">Save &amp; Close</button>
       <button class="btn-save" style="background:var(--upnext,#6e9ec0)" onclick="saveCapture(true)">Save &amp; Add Another</button>
     </div>
+  </div>
+</div>
+
+<!-- DAY PLAN MODAL -->
+<div class="modal-overlay" id="dayPlanModal">
+  <div class="modal" style="max-width:560px">
+    <div id="dayPlanContent"></div>
   </div>
 </div>
 

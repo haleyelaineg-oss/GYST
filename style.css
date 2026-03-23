@@ -460,6 +460,94 @@ kbd{background:var(--surface2);border:1px solid var(--border2);border-radius:4px
 .flow-bar-gyst{background:linear-gradient(135deg,#4a80b0,#6e9ec0) !important;color:#fff !important;border-color:transparent !important;box-shadow:0 2px 10px rgba(74,128,176,.35) !important}
 .flow-bar-gyst:hover{background:linear-gradient(135deg,#3a6fa0,#5a8eb0) !important;transform:translateY(-1px)}
 
+/* DASHBOARD VIEW */
+.view-header-right{display:flex;align-items:center;gap:12px}
+.dashboard-date{font-size:13px;color:var(--text-dim);font-weight:500}
+.btn-sm{padding:6px 14px;border-radius:8px;border:1.5px solid var(--border);background:var(--surface);color:var(--text-mid);font-family:'Jost',sans-serif;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s}
+.btn-sm:hover{border-color:var(--accent);color:var(--accent)}
+.dashboard-empty{text-align:center;padding:60px 28px;display:flex;flex-direction:column;align-items:center;gap:12px;color:var(--text-dim)}
+.dashboard-empty-icon{font-size:48px;line-height:1}
+.dashboard-empty h3{margin:0;font-size:18px;font-weight:600;color:var(--text)}
+.dashboard-empty p{margin:0;font-size:14px;max-width:340px;line-height:1.5}
+.dashboard-empty .btn-save{margin-top:8px}
+.dashboard-section{padding:20px 28px;border-bottom:1px solid var(--border)}
+.dashboard-section-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;color:var(--text-dim);margin-bottom:14px}
+/* Time block cards */
+.dashboard-tb-grid{display:flex;flex-wrap:wrap;gap:10px}
+.dashboard-tb-card{background:var(--surface2);border:1.5px solid var(--border);border-radius:10px;padding:12px 16px;min-width:120px;display:flex;flex-direction:column;gap:4px}
+.tb-card-label{font-size:13px;font-weight:600;color:var(--text)}
+.tb-card-subtitle{font-size:12px;color:var(--text-dim);margin-top:3px}
+/* Project cards */
+.dashboard-proj-card{background:var(--surface);border:1.5px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:10px;cursor:pointer;transition:border-color .15s,background .15s}
+.dashboard-proj-card:hover{border-color:var(--accent);background:var(--accent-lt)}
+.dp-proj-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.dp-proj-name{font-size:14px;font-weight:600;color:var(--text)}
+.dp-proj-pct{font-size:12px;font-weight:600;color:var(--text-dim)}
+.dp-proj-bar{height:5px;background:var(--border);border-radius:3px;margin-bottom:8px;overflow:hidden}
+.dp-proj-fill{height:100%;background:var(--accent);border-radius:3px;transition:width .3s}
+.dp-proj-next{font-size:12px;color:var(--text-mid)}
+.dp-proj-done{color:var(--accent);font-weight:600}
+/* Dashboard task rows */
+.dashboard-task-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)}
+.dashboard-task-row:last-child{border-bottom:none}
+.dashboard-task-row.done{opacity:.55}
+.dashboard-task-check{width:18px;height:18px;cursor:pointer;flex-shrink:0;accent-color:var(--accent)}
+.dashboard-task-body{flex:1;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.dashboard-task-title{font-size:14px;font-weight:500;color:var(--text)}
+.dashboard-task-title.crossed{text-decoration:line-through;color:var(--text-dim)}
+
+/* END MY DAY */
+.eod-section-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-dim);margin:12px 0 6px}
+.eod-section-other{margin-top:16px}
+.eod-review-row{display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:8px;font-size:14px;font-weight:500;color:var(--text-mid)}
+.eod-review-row.done{color:var(--text-dim)}
+.eod-check{width:18px;height:18px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--accent);flex-shrink:0}
+.eod-check-empty{color:var(--text-dim)}
+.eod-recurring-banner{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--text-mid);margin-bottom:12px}
+
+/* START MY DAY TASK ASSIGNMENT */
+.smd-assign-list{display:flex;flex-direction:column;gap:8px;margin-bottom:4px}
+.smd-task-row{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)}
+.smd-task-name{flex:1;font-size:14px;font-weight:500;color:var(--text);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.smd-block-select{flex-shrink:0;padding:5px 8px;border-radius:6px;border:1.5px solid var(--border);background:var(--surface);color:var(--text);font-family:'Jost',sans-serif;font-size:12px;font-weight:500;cursor:pointer;max-width:160px}
+.smd-block-select:focus{outline:none;border-color:var(--accent)}
+
+/* DASHBOARD TASKS IN BLOCKS */
+.tb-task-row{display:flex;align-items:center;gap:8px;padding:5px 4px;border-top:1px solid var(--border);margin-top:4px}
+.tb-task-row.done{opacity:.5}
+.tb-task-title{font-size:12px;font-weight:500;color:var(--text)}
+.tb-task-title.crossed{text-decoration:line-through;color:var(--text-dim)}
+
+/* TASK MODAL RECURRING TOGGLE */
+.task-recurring-toggle{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:500;color:var(--text-mid)}
+.task-recurring-toggle input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
+.task-recurring-toggle:hover{color:var(--text)}
+
+/* PLAN MY DAY MODAL */
+.dp-progress{display:flex;align-items:center;margin-bottom:20px}
+.dp-step{display:flex;align-items:center;gap:6px}
+.dp-step-num{width:22px;height:22px;border-radius:50%;border:2px solid var(--border);background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--text-dim);flex-shrink:0}
+.dp-step.active .dp-step-num{border-color:var(--accent);background:var(--accent);color:#fff}
+.dp-step.done .dp-step-num{border-color:var(--accent);background:var(--accent-lt);color:var(--accent)}
+.dp-step-label{font-size:12px;font-weight:600;color:var(--text-dim);white-space:nowrap}
+.dp-step.active .dp-step-label{color:var(--text)}
+.dp-step-line{flex:1;height:2px;background:var(--border);margin:0 8px;min-width:20px}
+.dp-step-line.done{background:var(--accent-lt)}
+/* Block editable rows */
+.dp-block-edit-row{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.dp-time-sep{color:var(--text-dim);font-size:14px;font-weight:300;flex-shrink:0;padding:0 2px}
+/* Pick list (projects / tasks) */
+.dp-pick-list{display:flex;flex-direction:column;gap:6px;max-height:300px;overflow-y:auto;padding-right:4px;margin-bottom:4px}
+.dp-pick-item{display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:10px;border:1.5px solid var(--border);cursor:pointer;transition:all .15s;background:var(--surface)}
+.dp-pick-item:hover{border-color:var(--accent);background:var(--accent-lt)}
+.dp-pick-item.sel{border-color:var(--accent);background:var(--accent-lt)}
+.dp-pick-check{width:20px;height:20px;border-radius:50%;border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--accent);flex-shrink:0;transition:all .15s}
+.dp-pick-item.sel .dp-pick-check{border-color:var(--accent);background:var(--accent);color:#fff}
+.dp-pick-body{flex:1;min-width:0}
+.dp-pick-name{font-size:14px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dp-pick-meta{font-size:11px;color:var(--text-dim);margin-top:2px}
+.dp-empty{font-size:13px;color:var(--text-dim);padding:12px 0;text-align:center}
+
 @media(max-width:780px){
   .main-layout{grid-template-columns:1fr}
   .sidebar{position:static}
