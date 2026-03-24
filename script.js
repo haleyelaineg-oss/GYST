@@ -2792,10 +2792,10 @@ document.addEventListener('keydown', function(e) {
   }
   if ((e.metaKey||e.ctrlKey) && e.key === 'k') { e.preventDefault(); openAddTask(); }
   var tag = document.activeElement.tagName;
+  var activeId = document.activeElement.id;
   if (e.key === 'Enter' && !['TEXTAREA','SELECT'].includes(tag)) {
-    if (document.getElementById('captureModal').classList.contains('open')  && !['TEXTAREA','SELECT'].includes(tag)) saveCapture(false);
-    if (document.getElementById('projectModal').classList.contains('open')) saveProject();
-    if (document.getElementById('stepModal').classList.contains('open'))    saveStep();
+    // Only auto-submit capture modal when Enter is pressed in the title field specifically
+    if (document.getElementById('captureModal').classList.contains('open') && activeId === 'captureTitle') saveCapture(false);
   }
 });
 
