@@ -2172,11 +2172,11 @@ function openStartMyDay() {
   var plan = S.todayPlan;
   window._dpSteps = ['Time Blocks', 'Assign Tasks'];
   // Pre-populate blocks from existing plan (or defaults)
-  window._dpBlocks = plan.timeBlocks && plan.timeBlocks.length
+  window._dpBlocks = (plan && plan.timeBlocks && plan.timeBlocks.length)
     ? plan.timeBlocks.map(function(b){ return { label: b.label, subtitle: b.subtitle||null, taskIds: b.taskIds||[] }; })
     : [{label:'Block 1', subtitle:null, taskIds:[]}, {label:'Block 2', subtitle:null, taskIds:[]}, {label:'Block 3', subtitle:null, taskIds:[]}];
   // Task pool: tasks selected in End My Day
-  window._dpDayTaskIds = (plan.top5TaskIds || []).slice();
+  window._dpDayTaskIds = (plan && plan.top5TaskIds ? plan.top5TaskIds : []).slice();
   smdStep1();
   openModal('dayPlanModal');
 }
