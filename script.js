@@ -2170,11 +2170,6 @@ function eodSave() {
 
 function openStartMyDay() {
   var plan = S.todayPlan;
-  // If there's no pre-planned tasks/projects, just go straight to dashboard
-  if (!plan || (!plan.top5TaskIds.length && !plan.top3ProjectIds.length)) {
-    setView('dashboard', document.getElementById('vb-dashboard'));
-    return;
-  }
   window._dpSteps = ['Time Blocks', 'Assign Tasks'];
   // Pre-populate blocks from existing plan (or defaults)
   window._dpBlocks = plan.timeBlocks && plan.timeBlocks.length
