@@ -1789,7 +1789,6 @@ function renderDashboardView(c) {
 
   // ── Time Blocks (with embedded task checkboxes if Start My Day ran) ──
   if (plan.timeBlocks && plan.timeBlocks.length) {
-    var blocksHaveTasks = plan.timeBlocks.some(function(b){ return b.taskIds && b.taskIds.length; });
     var tbSec = document.createElement('div');
     tbSec.className = 'dashboard-section';
     tbSec.innerHTML = '<div class="dashboard-section-title">Time Blocks</div>';
@@ -1831,12 +1830,27 @@ function renderDashboardView(c) {
       .filter(function(id){ return assignedIds.indexOf(id) === -1; })
       .map(function(id){ return S.tasks.find(function(x){ return x.id === id && !x.done; }); })
       .filter(Boolean);
-    if (unassigned.length && blocksHaveTasks) {
+    if (unassigned.length) {
       var unaSec = document.createElement('div');
       unaSec.className = 'dashboard-section';
       unaSec.innerHTML = '<div class="dashboard-section-title">Unassigned Tasks</div>';
       unassigned.forEach(function(t) {
         var row = dbTaskRow(t);
+        var sel = document.createElement('select');
+        sel.className = 'smd-block-select';
+        sel.innerHTML = '<option value="-1">+ Add to block</option>'
+          + plan.timeBlocks.map(function(b, i){
+              return '<option value="'+i+'">'+esc(b.label)+(b.subtitle?' — '+esc(b.subtitle):'')+'</option>';
+            }).join('');
+        sel.onchange = (function(task){ return function() {
+          var bi = parseInt(this.value, 10);
+          if (bi < 0) return;
+          plan.timeBlocks[bi].taskIds = plan.timeBlocks[bi].taskIds || [];
+          plan.timeBlocks[bi].taskIds.push(task.id);
+          dbUpsertDailyPlan(plan);
+          renderAll();
+        }; })(t);
+        row.appendChild(sel);
         unaSec.appendChild(row);
       });
       c.appendChild(unaSec);
@@ -2170,12 +2184,14 @@ function eodSave() {
 
 function openStartMyDay() {
   var plan = S.todayPlan;
-  window._dpSteps = ['Time Blocks', 'Assign Tasks'];
+  window._dpSteps = ['Time Blocks', 'Pick Tasks'];
+  window._smdFilterStatus = '';
+  window._smdFilterLabel  = '';
   // Pre-populate blocks from existing plan (or defaults)
   window._dpBlocks = (plan && plan.timeBlocks && plan.timeBlocks.length)
     ? plan.timeBlocks.map(function(b){ return { label: b.label, subtitle: b.subtitle||null, taskIds: b.taskIds||[] }; })
     : [{label:'Block 1', subtitle:null, taskIds:[]}, {label:'Block 2', subtitle:null, taskIds:[]}, {label:'Block 3', subtitle:null, taskIds:[]}];
-  // Task pool: tasks selected in End My Day
+  // Pre-select tasks from End My Day suggestions (user can change in step 2)
   window._dpDayTaskIds = (plan && plan.top5TaskIds ? plan.top5TaskIds : []).slice();
   smdStep1();
   openModal('dayPlanModal');
@@ -2199,39 +2215,95 @@ function smdStep1() {
 }
 
 function smdStep2() {
-  var c = document.getElementById('dayPlanContent');
-  var taskPool = window._dpDayTaskIds
-    .map(function(id){ return S.tasks.find(function(t){ return t.id === id && !t.done; }); })
-    .filter(Boolean);
-
-  // Build task→block map from current block assignments
+  // Build task→block map from existing block assignments
   window._dpTaskBlockMap = {};
   window._dpBlocks.forEach(function(b, bi) {
     (b.taskIds || []).forEach(function(tid){ window._dpTaskBlockMap[tid] = bi; });
   });
 
+  var c = document.getElementById('dayPlanContent');
+  var statusOpts = '<option value="">All statuses</option>'
+    + STATUSES.map(function(st){
+        return '<option value="'+st.id+'">'+ st.label +'</option>';
+      }).join('');
+  var labelChips = S.labels.map(function(lbl){
+    return '<span class="tag-chip lbl" data-lbl="'+esc(lbl)+'" onclick="smdSetLabelFilter(this)">'+esc(lbl)+'</span>';
+  }).join('');
+
   c.innerHTML = dpProgressHtml(2)
-    + '<h3>Assign Tasks to Blocks</h3>'
-    + '<p class="modal-sub">Drop each task into a time block for today.</p>'
-    + (taskPool.length
-        ? '<div class="smd-assign-list">'
-          + taskPool.map(function(t) {
-              var bi = window._dpTaskBlockMap.hasOwnProperty(t.id) ? window._dpTaskBlockMap[t.id] : -1;
-              var opts = '<option value="-1"'+(bi===-1?' selected':'')+'>Unassigned</option>'
-                + window._dpBlocks.map(function(b, i){
-                    return '<option value="'+i+'"'+(bi===i?' selected':'')+'>'+esc(b.label)+(b.subtitle?' — '+esc(b.subtitle):'')+'</option>';
-                  }).join('');
-              return '<div class="smd-task-row">'
-                + '<span class="smd-task-name">'+esc(t.title)+'</span>'
-                + '<select class="smd-block-select" onchange="window._dpTaskBlockMap[\''+t.id+'\']=parseInt(this.value,10)">'+opts+'</select>'
-                + '</div>';
-            }).join('')
-          + '</div>'
-        : '<div class="dp-empty">No tasks in today\'s plan.<br><small>Use End My Day to pre-select tasks for tomorrow.</small></div>')
+    + '<h3>Pick Your Tasks</h3>'
+    + '<p class="modal-sub">Select the tasks you\'ll tackle today. Assign them to a block if you like.</p>'
+    + '<div class="smd-filter-bar">'
+    +   '<select class="smd-status-filter" onchange="window._smdFilterStatus=this.value;smdRenderTaskList()">'+statusOpts+'</select>'
+    +   (S.labels.length ? '<div class="smd-label-chips">'+labelChips+'</div>' : '')
+    + '</div>'
+    + '<div id="smdTaskList" class="dp-pick-list" style="max-height:340px"></div>'
     + '<div class="modal-actions">'
     + '<button class="btn-cancel" onclick="smdStep1()">← Back</button>'
     + '<button class="btn-save" onclick="smdSave()">Start My Day →</button>'
     + '</div>';
+
+  smdRenderTaskList();
+}
+
+function smdSetLabelFilter(el) {
+  var lbl = el.dataset.lbl;
+  window._smdFilterLabel = (window._smdFilterLabel === lbl) ? '' : lbl;
+  document.querySelectorAll('.smd-label-chips .tag-chip').forEach(function(c){
+    c.classList.toggle('sel', c.dataset.lbl === window._smdFilterLabel);
+  });
+  smdRenderTaskList();
+}
+
+function smdRenderTaskList() {
+  var tasks = S.tasks.filter(function(t){ return !t.done; });
+  if (window._smdFilterStatus) {
+    tasks = tasks.filter(function(t){ return t.status === window._smdFilterStatus; });
+  }
+  if (window._smdFilterLabel) {
+    tasks = tasks.filter(function(t){ return t.labels && t.labels.indexOf(window._smdFilterLabel) !== -1; });
+  }
+
+  var list = document.getElementById('smdTaskList');
+  if (!list) return;
+
+  if (!tasks.length) {
+    list.innerHTML = '<div class="dp-empty">No tasks match this filter.</div>';
+    return;
+  }
+
+  list.innerHTML = tasks.map(function(t) {
+    var sel = window._dpDayTaskIds.indexOf(t.id) !== -1;
+    var bi  = window._dpTaskBlockMap.hasOwnProperty(t.id) ? window._dpTaskBlockMap[t.id] : -1;
+    var meta = [t.status, (t.labels && t.labels.length ? t.labels.join(', ') : null), t.timeRequired]
+      .filter(Boolean).join(' · ');
+    var blockOpts = '<option value="-1"'+(bi===-1?' selected':'')+'>No block</option>'
+      + window._dpBlocks.map(function(b, i){
+          return '<option value="'+i+'"'+(bi===i?' selected':'')+'>'+esc(b.label)+(b.subtitle?' — '+esc(b.subtitle):'')+'</option>';
+        }).join('');
+    var blockSelect = sel
+      ? '<select class="smd-block-select" onclick="event.stopPropagation()" onchange="window._dpTaskBlockMap[\''+t.id+'\']=parseInt(this.value,10)">'+blockOpts+'</select>'
+      : '';
+    return '<div class="dp-pick-item'+(sel?' sel':'')+'" onclick="smdToggleTask(\''+t.id+'\')">'
+      + '<div class="dp-pick-check">'+(sel?'✓':'')+'</div>'
+      + '<div class="dp-pick-body">'
+      +   '<div class="dp-pick-name">'+esc(t.title)+'</div>'
+      +   (meta ? '<div class="dp-pick-meta">'+meta+'</div>' : '')
+      + '</div>'
+      + blockSelect
+      + '</div>';
+  }).join('');
+}
+
+function smdToggleTask(id) {
+  var idx = window._dpDayTaskIds.indexOf(id);
+  if (idx !== -1) {
+    window._dpDayTaskIds.splice(idx, 1);
+    delete window._dpTaskBlockMap[id];
+  } else {
+    window._dpDayTaskIds.push(id);
+  }
+  smdRenderTaskList();
 }
 
 function smdSave() {
@@ -2245,6 +2317,7 @@ function smdSave() {
   });
   var plan = S.todayPlan || { id: uid(), date: todayStr() };
   plan.timeBlocks = blocks;
+  plan.top5TaskIds = window._dpDayTaskIds.slice();
   S.todayPlan = plan;
   dbUpsertDailyPlan(plan);
   closeModal('dayPlanModal');

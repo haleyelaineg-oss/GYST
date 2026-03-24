@@ -511,6 +511,10 @@ kbd{background:var(--surface2);border:1px solid var(--border2);border-radius:4px
 .smd-task-name{flex:1;font-size:14px;font-weight:500;color:var(--text);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .smd-block-select{flex-shrink:0;padding:5px 8px;border-radius:6px;border:1.5px solid var(--border);background:var(--surface);color:var(--text);font-family:'Jost',sans-serif;font-size:12px;font-weight:500;cursor:pointer;max-width:160px}
 .smd-block-select:focus{outline:none;border-color:var(--accent)}
+.smd-filter-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--border)}
+.smd-status-filter{padding:5px 10px;border-radius:6px;border:1.5px solid var(--border);background:var(--surface);color:var(--text);font-family:'Jost',sans-serif;font-size:12px;font-weight:500;cursor:pointer}
+.smd-status-filter:focus{outline:none;border-color:var(--accent)}
+.smd-label-chips{display:flex;flex-wrap:wrap;gap:5px}
 
 /* DASHBOARD TASKS IN BLOCKS */
 .tb-task-row{display:flex;align-items:center;gap:8px;padding:5px 4px;border-top:1px solid var(--border);margin-top:4px}
