@@ -136,8 +136,17 @@
         <span>Capture</span>
         <span class="capture-badge" id="captureBadge" style="display:none"></span>
       </button>
-      <button class="btn btn-secondary" onclick="openAddTask()">﹢ New Task</button>
-      <button class="btn btn-secondary" onclick="openAddProject()">﹢ New Project</button>
+      <button class="btn btn-secondary" onclick="openAddTask()">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="20" height="20">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v6m3-3H9m12 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+      </svg>
+      New Task</button>
+
+      <button class="btn btn-secondary" onclick="openAddProject()">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="20" height="20">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v6m3-3H9m12 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+      </svg>
+      New Project</button>
       <div class="auth-user-row">
         <span class="auth-user-email" id="authUserEmail"></span>
         <button class="btn-icon" onclick="openSettings()" title="Settings">
@@ -161,10 +170,10 @@
       <!-- VIEWS -->
       <div class="sb-section">
         <div class="sb-label">Views</div>
-        <button class="sb-btn" id="vb-dashboard" onclick="setView('dashboard',this)">
+        <button class="sb-btn active" id="vb-dashboard" onclick="setView('dashboard',this)">
           <div class="sb-btn-inner"><span class="sb-name">Dashboard</span></div>
         </button>
-        <button class="sb-btn active" id="vb-all" onclick="setView('all',this)">
+        <button class="sb-btn" id="vb-all" onclick="setView('all',this)">
           <div class="sb-btn-inner"><span class="sb-name">Tasks</span></div>
           <span class="sb-count" id="cnt-all"></span>
         </button>
@@ -179,6 +188,10 @@
         <button class="sb-btn" id="vb-recurring" onclick="setView('recurring',this)">
           <div class="sb-btn-inner"><span class="sb-name">Recurring</span></div>
           <span class="sb-count" id="cnt-recurring"></span>
+        </button>
+        <button class="sb-btn" id="vb-inbox" onclick="setView('inbox',this)">
+          <div class="sb-btn-inner"><span class="sb-name">Inbox</span></div>
+          <span class="sb-count" id="cnt-inbox"></span>
         </button>
         <button class="sb-btn" id="vb-completed" onclick="setView('completed',this)">
           <div class="sb-btn-inner"><span class="sb-name">Completed</span></div>
@@ -256,6 +269,12 @@
 <!-- TASK MODAL -->
 <div class="modal-overlay" id="taskModal">
   <div class="modal">
+    <button class="modal-close" onclick="closeModal('taskModal')" aria-label="Close">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="20" height="20">
+  <path stroke-linecap="round" stroke-linejoin="round" d="m9.75 9.75 4.5 4.5m0-4.5-4.5 4.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+</svg>
+
+    </button>
     <h2 id="taskModalTitle">New Task</h2>
     <div class="fg">
       <label class="fl">What needs doing?</label>
@@ -301,6 +320,8 @@
       </div>
     </div>
     <div class="fdiv"></div>
+    <div class="fg" id="blockedByWrap"></div>
+    <div class="fdiv"></div>
     <div class="fg">
       <label class="fl">Make Recurring? <span class="fl-opt">(converts this into a recurring task)</span></label>
       <label class="task-recurring-toggle">
@@ -328,6 +349,7 @@
 <!-- PROJECT MODAL -->
 <div class="modal-overlay" id="projectModal">
   <div class="modal">
+    <button class="modal-close" onclick="closeModal('projectModal')" aria-label="Close">✕</button>
     <h2 id="projModalTitle">New Project</h2>
     <div class="fg">
       <label class="fl">Project Name</label>
@@ -374,6 +396,7 @@
 <!-- STEP MODAL -->
 <div class="modal-overlay" id="stepModal">
   <div class="modal">
+    <button class="modal-close" onclick="closeModal('stepModal')" aria-label="Close">✕</button>
     <h2>Edit Action Step</h2>
     <div class="fg">
       <label class="fl">Action</label>
@@ -409,7 +432,7 @@
 <!-- COMPLETION MODAL -->
 <div class="modal-overlay comp-modal" id="compModal">
   <div class="modal">
-    <h2>All done! 🎉</h2>
+    <h2>All done!</h2>
     <p class="comp-sub" id="compSub"></p>
     <div class="comp-choices">
       <button class="comp-btn" onclick="markProjComplete()">Project Complete!<small>Archive this project as finished</small></button>
@@ -421,6 +444,7 @@
 <!-- SETTINGS MODAL -->
 <div class="modal-overlay" id="settingsModal">
   <div class="modal" style="max-width:460px">
+    <button class="modal-close" onclick="closeModal('settingsModal')" aria-label="Close">✕</button>
     <h2>Settings</h2>
     <p class="modal-sub">Manage your labels, locations, and theme</p>
     <div class="fg">
@@ -454,6 +478,7 @@
 <!-- RECURRING TASK MODAL -->
 <div class="modal-overlay" id="recurringModal">
   <div class="modal" style="max-width:480px">
+    <button class="modal-close" onclick="closeModal('recurringModal')" aria-label="Close">✕</button>
     <h2 id="recurringModalTitle">New Recurring Task</h2>
     <div class="fg">
       <label class="fl">Task</label>
@@ -508,6 +533,7 @@
 <!-- CAPTURE MODAL -->
 <div class="modal-overlay" id="captureModal">
   <div class="modal" style="max-width:420px">
+    <button class="modal-close" onclick="closeModal('captureModal')" aria-label="Close">✕</button>
     <h2>✎ Capture</h2>
     <p class="modal-sub">Don't think — just dump it. You'll sort it out in GYST.</p>
     <div class="fg">
@@ -529,6 +555,7 @@
 <!-- DAY PLAN MODAL -->
 <div class="modal-overlay" id="dayPlanModal">
   <div class="modal" style="max-width:560px">
+    <button class="modal-close" onclick="closeModal('dayPlanModal')" aria-label="Close">✕</button>
     <div id="dayPlanContent"></div>
   </div>
 </div>
@@ -536,6 +563,7 @@
 <!-- GYST MODAL -->
 <div class="modal-overlay gyst-modal" id="gystModal">
   <div class="modal">
+    <button class="modal-close" onclick="closeModal('gystModal')" aria-label="Close">✕</button>
     <div id="gystContent"></div>
   </div>
 </div>

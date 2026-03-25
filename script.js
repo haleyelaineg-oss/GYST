@@ -42,7 +42,7 @@ let S = {
   recurring: [],
   todayPlan: null,
   weeklyPlan: null,
-  view: 'all',
+  view: 'dashboard',
   activeProjId: null,
   editTaskId: null,
   editProjId: null,
@@ -90,6 +90,7 @@ function dbTaskToLocal(row) {
     timeRequired: row.time_required || null,
     done:         row.done,
     completedAt:  row.completed_at  || null,
+    blockedBy:    row.blocked_by    || [],
     created:      new Date(row.created_at).getTime(),
   };
 }
@@ -206,6 +207,13 @@ async function dbUpsertTask(task) {
   }, { onConflict: 'id' });
   if (res.error) console.error('[GYST] Save task error:', res.error);
   else console.log('[GYST] task saved ok');
+}
+
+// Separate upsert for blockedBy — requires `ALTER TABLE tasks ADD COLUMN blocked_by text[] DEFAULT '{}';`
+// Fails silently if the column doesn't exist yet so it never breaks task saves.
+async function dbUpdateTaskBlockers(task) {
+  if (!currentUser) return;
+  await sb.from('tasks').update({ blocked_by: task.blockedBy || [] }).eq('id', task.id);
 }
 
 async function dbDeleteTask(id) {
@@ -556,14 +564,16 @@ function renderSidebar() {
     return !r.nextDueAt || r.nextDueAt <= today;
   }).length;
 
-  var cntAll = document.getElementById('cnt-all');
-  var cntProj = document.getElementById('cnt-projects');
-  var cntErr  = document.getElementById('cnt-errands');
-  var cntRec  = document.getElementById('cnt-recurring');
-  if (cntAll)  cntAll.textContent  = allCount      || '';
-  if (cntProj) cntProj.textContent = projectCount  || '';
-  if (cntErr)  cntErr.textContent  = errandCount   || '';
-  if (cntRec)  cntRec.textContent  = recurringDue  || '';
+  var cntAll   = document.getElementById('cnt-all');
+  var cntProj  = document.getElementById('cnt-projects');
+  var cntErr   = document.getElementById('cnt-errands');
+  var cntRec   = document.getElementById('cnt-recurring');
+  var cntInbox = document.getElementById('cnt-inbox');
+  if (cntAll)   cntAll.textContent   = allCount         || '';
+  if (cntProj)  cntProj.textContent  = projectCount     || '';
+  if (cntErr)   cntErr.textContent   = errandCount      || '';
+  if (cntRec)   cntRec.textContent   = recurringDue     || '';
+  if (cntInbox) cntInbox.textContent = S.inbox.length   || '';
 
   var list = document.getElementById('projectList');
   if (list) {
@@ -601,12 +611,13 @@ function renderMain() {
   else if (S.view === 'project')   renderSingleProjectView(c);
   else if (S.view === 'recurring') renderRecurringView(c);
   else if (S.view === 'completed') renderCompletedView(c);
+  else if (S.view === 'inbox')     renderInboxView(c);
   else                             renderTasksView(c);
 }
 
 function setView(v, btn) {
   S.view = v;
-  document.querySelectorAll('#vb-all,#vb-projects,#vb-errands,#vb-recurring,#vb-completed,#vb-dashboard').forEach(function(b){ b.classList.remove('active'); });
+  document.querySelectorAll('#vb-all,#vb-projects,#vb-errands,#vb-recurring,#vb-completed,#vb-dashboard,#vb-inbox').forEach(function(b){ b.classList.remove('active'); });
   document.querySelectorAll('#projectList .sb-btn').forEach(function(b){ b.classList.remove('active'); });
   if (btn) btn.classList.add('active');
   renderSidebar();
@@ -663,12 +674,21 @@ function renderTasksView(c) {
   c.appendChild(wrap);
 }
 
+function isBlocked(t) {
+  if (!t.blockedBy || !t.blockedBy.length) return false;
+  return t.blockedBy.some(function(id) {
+    var dep = S.tasks.find(function(x){ return x.id === id; });
+    return dep && !dep.done;
+  });
+}
+
 function taskCardHTML(t) {
   var autoEsc = !t.done && effectiveTaskStatus(t) === 'timesensitive' && t.status !== 'timesensitive';
-  return '<div class="action-card'+(t.done?' is-done':'')+'">'
+  var blocked = !t.done && isBlocked(t);
+  return '<div class="action-card'+(t.done?' is-done':'')+(blocked?' is-blocked':'')+'">'
     + '<div class="ac-check'+(t.done?' chk':'')+'" onclick="toggleTask(\''+t.id+'\')"></div>'
     + '<div class="ac-body ac-body-click" onclick="openEditTask(\''+t.id+'\')">'
-    + '<div class="ac-title">'+esc(t.title)+(autoEsc?'<span class="badge-esc">auto-escalated</span>':'')+'</div>'
+    + '<div class="ac-title">'+esc(t.title)+(autoEsc?'<span class="badge-esc">auto-escalated</span>':'')+(blocked?'<span class="badge-blocked">Blocked</span>':'')+'</div>'
     + (t.notes ? '<div class="ac-notes">'+esc(t.notes)+'</div>' : '')
     + '<div class="ac-meta">'+(t.dueDate ? fmtDue(t.dueDate) : '')+(t.timeRequired ? '<span class="ac-time">'+TIME_OPTS.find(function(o){return o.id===t.timeRequired;}).label+'</span>' : '')+'</div>'
     + '</div>'
@@ -928,6 +948,59 @@ function deleteRecurring(id) {
 }
 
 // ── COMPLETED VIEW ────────────────────────────────────────────────────
+
+function renderInboxView(c) {
+  c.innerHTML = '';
+  var header = document.createElement('div');
+  header.className = 'view-header';
+  header.innerHTML = '<h2 class="view-title">Inbox</h2>'
+    + '<div class="view-header-right">'
+    + '<button class="btn-sm" onclick="openGYST()">Process All →</button>'
+    + '</div>';
+  c.appendChild(header);
+
+  if (!S.inbox.length) {
+    var empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.innerHTML = 'Inbox is clear! Use <strong>Capture</strong> to quickly dump things on your mind.';
+    c.appendChild(empty);
+    return;
+  }
+
+  var list = document.createElement('div');
+  list.className = 'inbox-list';
+  S.inbox.forEach(function(item) {
+    var row = document.createElement('div');
+    row.className = 'inbox-row';
+    row.innerHTML = '<div class="inbox-row-body">'
+      + '<div class="inbox-row-title">'+esc(item.title)+'</div>'
+      + (item.note ? '<div class="inbox-row-note">'+esc(item.note)+'</div>' : '')
+      + '</div>'
+      + '<div class="inbox-row-actions">'
+      + '<button class="btn-sm" onclick="inboxToTask(\''+item.id+'\')">+ Task</button>'
+      + '<button class="ic-btn del" onclick="deleteInboxItem(\''+item.id+'\')">✕</button>'
+      + '</div>';
+    list.appendChild(row);
+  });
+  c.appendChild(list);
+}
+
+function inboxToTask(id) {
+  var item = S.inbox.find(function(i){ return i.id === id; });
+  if (!item) return;
+  openAddTask(item.title);
+  S.inbox = S.inbox.filter(function(i){ return i.id !== id; });
+  dbClearInboxItems([id]);
+  updateCaptureBadge();
+  renderSidebar();
+}
+
+function deleteInboxItem(id) {
+  S.inbox = S.inbox.filter(function(i){ return i.id !== id; });
+  dbClearInboxItems([id]);
+  updateCaptureBadge();
+  renderAll();
+}
 
 function renderCompletedView(c) {
   c.innerHTML = '';
@@ -1443,10 +1516,11 @@ function openAddTask(prefillTitle, prefillStatus) {
   buildStatusGrid(prefillStatus);
   populateProjAssign();
   document.getElementById('tProjAssign').value = '';
-  S.tLabels = []; S.tLoc = [];
+  S.tLabels = []; S.tLoc = []; S.tBlockedBy = [];
   renderTagPicker('tLabelPicker', 'label',    S.tLabels);
   renderTagPicker('tLocPicker',   'location', S.tLoc);
   buildTimeGrid('tTimeGrid', null);
+  renderBlockedByPicker(null);
   document.getElementById('tIsRecurring').checked = false;
   document.getElementById('tRecurringFields').style.display = 'none';
   openModal('taskModal');
@@ -1469,11 +1543,13 @@ function openEditTask(id) {
   buildStatusGrid(effectiveTaskStatus(t));
   populateProjAssign();
   document.getElementById('tProjAssign').value = '';
-  S.tLabels = (t.labels    || []).slice();
-  S.tLoc    = t.location ? [t.location] : [];
+  S.tLabels    = (t.labels    || []).slice();
+  S.tLoc       = t.location ? [t.location] : [];
+  S.tBlockedBy = (t.blockedBy || []).slice();
   renderTagPicker('tLabelPicker', 'label',    S.tLabels);
   renderTagPicker('tLocPicker',   'location', S.tLoc);
   buildTimeGrid('tTimeGrid', t.timeRequired || null);
+  renderBlockedByPicker(id);
   document.getElementById('tIsRecurring').checked = false;
   document.getElementById('tRecurringFields').style.display = 'none';
   openModal('taskModal');
@@ -1511,6 +1587,43 @@ function buildTaskFreqGrid(selectedDays) {
   if (isCustom) document.getElementById('tCustomDays').value = selectedDays;
 }
 
+function renderBlockedByPicker(excludeTaskId) {
+  var wrap = document.getElementById('blockedByWrap');
+  if (!wrap) return;
+  S.tBlockedBy = S.tBlockedBy || [];
+  var search = (document.getElementById('blockedBySearch') || {}).value || '';
+  var candidates = S.tasks.filter(function(t) {
+    return t.id !== excludeTaskId && !t.done && t.title.toLowerCase().includes(search.toLowerCase());
+  });
+  var chips = S.tBlockedBy.map(function(id) {
+    var t = S.tasks.find(function(x){ return x.id === id; });
+    if (!t) return '';
+    return '<span class="blocker-chip">'+esc(t.title)+'<button type="button" onclick="removeBlocker(\''+id+'\')">✕</button></span>';
+  }).join('');
+  wrap.innerHTML = '<label class="fl">Blocked By <span class="fl-opt">(optional — must be done first)</span></label>'
+    + (chips ? '<div class="blocker-chips">'+chips+'</div>' : '')
+    + '<input class="fi" id="blockedBySearch" type="text" placeholder="Search tasks to add as blocker…" oninput="renderBlockedByPicker(\''+excludeTaskId+'\')" value="'+esc(search)+'" autocomplete="off"/>'
+    + (search && candidates.length
+        ? '<div class="blocker-results">'+candidates.slice(0,6).map(function(t){
+            var already = S.tBlockedBy.indexOf(t.id) !== -1;
+            return already ? '' : '<div class="blocker-result" onclick="addBlocker(\''+t.id+'\')">'+esc(t.title)+'</div>';
+          }).join('')+'</div>'
+        : '');
+}
+
+function addBlocker(id) {
+  if (!S.tBlockedBy) S.tBlockedBy = [];
+  if (S.tBlockedBy.indexOf(id) === -1) S.tBlockedBy.push(id);
+  var s = document.getElementById('blockedBySearch');
+  if (s) s.value = '';
+  renderBlockedByPicker(S.editTaskId);
+}
+
+function removeBlocker(id) {
+  S.tBlockedBy = (S.tBlockedBy || []).filter(function(x){ return x !== id; });
+  renderBlockedByPicker(S.editTaskId);
+}
+
 function saveTask() {
   if (!S.editTaskId && S.editStepProjId) { saveStep(); return; }
 
@@ -1523,6 +1636,7 @@ function saveTask() {
   var labels       = S.tLabels.slice();
   var location     = S.tLoc[0] || null;
   var timeRequired = (document.querySelector('#tTimeGrid .to.sel') || {dataset:{}}).dataset.t || null;
+  var blockedBy    = (S.tBlockedBy || []).slice();
 
   // Convert to recurring task if toggle is on
   if (document.getElementById('tIsRecurring').checked) {
@@ -1559,13 +1673,15 @@ function saveTask() {
     if (S.editTaskId) {
       var t = S.tasks.find(function(t){ return t.id === S.editTaskId; });
       if (t) {
-        t.title=title; t.status=status; t.notes=notes; t.dueDate=dueDate; t.labels=labels; t.location=location; t.timeRequired=timeRequired;
+        t.title=title; t.status=status; t.notes=notes; t.dueDate=dueDate; t.labels=labels; t.location=location; t.timeRequired=timeRequired; t.blockedBy=blockedBy;
         dbUpsertTask(t);
+        dbUpdateTaskBlockers(t);
       }
     } else {
-      var newTask = {id:uid(), title:title, status:status, notes:notes, dueDate:dueDate, labels:labels, location:location, timeRequired:timeRequired, done:false, created:Date.now()};
+      var newTask = {id:uid(), title:title, status:status, notes:notes, dueDate:dueDate, labels:labels, location:location, timeRequired:timeRequired, blockedBy:blockedBy, done:false, created:Date.now()};
       S.tasks.unshift(newTask);
       dbUpsertTask(newTask);
+      dbUpdateTaskBlockers(newTask);
     }
   }
   renderAll(); closeModal('taskModal');
@@ -1798,14 +1914,13 @@ function renderDashboardView(c) {
       var card = document.createElement('div');
       card.className = 'dashboard-tb-card';
       var header = document.createElement('div');
-      header.innerHTML = '<div class="tb-card-label">'+esc(b.label)+'</div>'
-        + (b.subtitle ? '<div class="tb-card-subtitle">'+esc(b.subtitle)+'</div>' : '');
+      header.innerHTML = '<div class="tb-card-label">'+esc(b.subtitle || b.label)+'</div>';
       card.appendChild(header);
       // Show tasks assigned to this block
       if (b.taskIds && b.taskIds.length) {
         b.taskIds.forEach(function(tid) {
           var t = S.tasks.find(function(x){ return x.id === tid; });
-          if (!t) return;
+          if (!t || t.done) return;
           var taskRow = document.createElement('div');
           taskRow.className = 'tb-task-row' + (t.done ? ' done' : '');
           var cb = document.createElement('input');
@@ -1894,6 +2009,25 @@ function renderDashboardView(c) {
       projSec.appendChild(card);
     });
     c.appendChild(projSec);
+  }
+
+  // ── Daily Recurring Tasks ──
+  var todayDate = todayStr();
+  var dailyTasks = S.recurring.filter(function(r) {
+    return r.active && r.intervalDays === 1 && (!r.nextDueAt || r.nextDueAt <= todayDate);
+  });
+  if (dailyTasks.length) {
+    var dailySec = document.createElement('div');
+    dailySec.className = 'dashboard-section';
+    dailySec.innerHTML = '<div class="dashboard-section-title">Daily Tasks</div>';
+    dailyTasks.forEach(function(r) {
+      var row = document.createElement('div');
+      row.className = 'dashboard-task-row';
+      row.innerHTML = '<button class="rc-done-btn-sm" onclick="completeRecurring(\''+r.id+'\');renderMain()">Done</button>'
+        + '<span class="dashboard-task-title">'+esc(r.title)+'</span>';
+      dailySec.appendChild(row);
+    });
+    c.appendChild(dailySec);
   }
 
   // ── Weekly Focus Projects ──
@@ -2569,9 +2703,12 @@ function openGYST() {
     + inboxNote
     + '<div class="fg"><label class="fl">What\'s in your head right now? <span class="fl-opt">(leave blank to just process inbox)</span></label>'
     + '<textarea class="fta" id="gystDump" placeholder="Call the dentist\nFollow up with Dave\nWrite ASCEND board agenda\nBuy dog food…" style="min-height:160px" onkeydown="if((event.metaKey||event.ctrlKey)&&event.key===\'Enter\'){event.preventDefault();gystStart();}"></textarea></div>'
-    + '<div class="modal-actions">'
+    + '<div class="modal-actions" style="justify-content:space-between">'
     + '<button class="btn-cancel" onclick="closeModal(\'gystModal\')">Cancel</button>'
+    + '<div style="display:flex;gap:10px">'
+    + (S.inbox.length ? '<button class="btn-secondary" onclick="closeModal(\'gystModal\');setView(\'inbox\',document.getElementById(\'vb-inbox\'))">Review Inbox ('+S.inbox.length+')</button>' : '')
     + '<button class="btn-save" onclick="gystStart()">Let\'s go →</button>'
+    + '</div>'
     + '</div>';
   openModal('gystModal');
   setTimeout(function(){ var d=document.getElementById('gystDump'); if(d)d.focus(); }, 120);
@@ -2623,6 +2760,8 @@ function gystShowItem() {
     + '<button class="gyst-choice" onclick="gystPickProject('+idx+')"><span class="gyst-choice-icon">📋</span><div>Project<small>Needs multiple steps</small></div></button>'
     + '<button class="gyst-choice" onclick="gystPickErrand('+idx+')"><span class="gyst-choice-icon">🛒</span><div>Errand<small>Need to go somewhere for this</small></div></button>'
     + '<button class="gyst-choice" onclick="gystPickSomeday('+idx+')"><span class="gyst-choice-icon">💭</span><div>Someday / Maybe<small>Not right now, but keep it</small></div></button>'
+    + '<button class="gyst-choice" onclick="gystPickRecurring('+idx+')"><span class="gyst-choice-icon">↺</span><div>Recurring<small>Happens on a regular schedule</small></div></button>'
+    + '<button class="gyst-choice" onclick="gystPickProjectStep('+idx+')"><span class="gyst-choice-icon">📋</span><div>Project Step<small>Add as a step to an existing project</small></div></button>'
     + '</div>'
     + '<button class="gyst-skip" onclick="gystSkip()">Skip this one</button>';
 }
@@ -2743,6 +2882,84 @@ function gystSaveProject(idx) {
   S.gyst.index = idx + 1; gystShowItem();
 }
 
+function gystPickRecurring(idx) {
+  var title = S.gyst.items[idx];
+  var pct   = Math.round(idx / S.gyst.items.length * 100);
+  document.getElementById('gystContent').innerHTML = ''
+    + '<div class="gyst-progress"><div class="gyst-bar"><div class="gyst-bar-fill" style="width:'+pct+'%"></div></div><span class="gyst-bar-text">'+(idx+1)+' of '+S.gyst.items.length+'</span></div>'
+    + '<div class="gyst-item">"'+esc(title)+'"</div>'
+    + '<div class="gyst-item-sub">Set up as a recurring task</div>'
+    + '<div class="fg"><label class="fl">Frequency</label><div class="time-grid" id="gystRecFreqGrid"></div></div>'
+    + '<div class="modal-actions">'
+    + '<button class="btn-cancel" onclick="S.gyst.index='+idx+';gystShowItem()">← Back</button>'
+    + '<button class="btn-save" onclick="gystSaveRecurring('+idx+')">Save & Continue →</button>'
+    + '</div>';
+  buildRecFreqGrid(7);
+}
+
+function buildRecFreqGrid(selectedDays) {
+  var grid = document.getElementById('gystRecFreqGrid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  FREQ_PRESETS.filter(function(p){ return p.days !== -1; }).forEach(function(p) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'to' + (p.days === selectedDays ? ' sel' : '');
+    btn.dataset.days = p.days;
+    btn.textContent = p.label;
+    btn.onclick = function() {
+      document.querySelectorAll('#gystRecFreqGrid .to').forEach(function(b){ b.classList.remove('sel'); });
+      btn.classList.add('sel');
+    };
+    grid.appendChild(btn);
+  });
+}
+
+function gystSaveRecurring(idx) {
+  var title   = S.gyst.items[idx];
+  var freqBtn = document.querySelector('#gystRecFreqGrid .to.sel');
+  var days    = freqBtn ? parseInt(freqBtn.dataset.days, 10) : 7;
+  var rec = {
+    id: uid(), title: title, notes: '', intervalDays: days,
+    labels: [], location: null, timeRequired: null,
+    lastCompletedAt: null, nextDueAt: todayStr(), active: true, created: Date.now(),
+  };
+  S.recurring.push(rec);
+  dbUpsertRecurring(rec);
+  S.gyst.index = idx + 1;
+  gystShowItem();
+}
+
+function gystPickProjectStep(idx) {
+  var title   = S.gyst.items[idx];
+  var pct     = Math.round(idx / S.gyst.items.length * 100);
+  var projs   = S.projects.filter(function(p){ return !p.completed; });
+  document.getElementById('gystContent').innerHTML = ''
+    + '<div class="gyst-progress"><div class="gyst-bar"><div class="gyst-bar-fill" style="width:'+pct+'%"></div></div><span class="gyst-bar-text">'+(idx+1)+' of '+S.gyst.items.length+'</span></div>'
+    + '<div class="gyst-item">"'+esc(title)+'"</div>'
+    + '<div class="gyst-item-sub">Which project does this belong to?</div>'
+    + (projs.length
+        ? '<div class="dp-pick-list">'
+          + projs.map(function(p) {
+              return '<div class="dp-pick-item" onclick="gystSaveProjectStep('+idx+',\''+p.id+'\')">'+esc(p.name)+'</div>';
+            }).join('')
+          + '</div>'
+        : '<p style="color:var(--text-muted);font-size:13px">No active projects yet. Create a project first.</p>')
+    + '<div class="modal-actions">'
+    + '<button class="btn-cancel" onclick="S.gyst.index='+idx+';gystShowItem()">← Back</button>'
+    + '</div>';
+}
+
+function gystSaveProjectStep(idx, projId) {
+  var title = S.gyst.items[idx];
+  var proj  = S.projects.find(function(p){ return p.id === projId; });
+  if (!proj) { S.gyst.index = idx + 1; gystShowItem(); return; }
+  proj.steps.push({id:uid(), title:title, done:false, dueDate:null, statusOverride:null, labels:[], location:null});
+  dbUpsertProject(proj);
+  S.gyst.index = idx + 1;
+  gystShowItem();
+}
+
 function gystPickErrand(idx) {
   var title   = S.gyst.items[idx];
   var newTask = {id:uid(), title:title, status:'errands', notes:'', dueDate:null, labels:[], location:null, done:false, created:Date.now()};
@@ -2775,11 +2992,7 @@ function closeModal(id) {
   }
 }
 
-document.querySelectorAll('.modal-overlay').forEach(function(o) {
-  o.addEventListener('click', function(e) {
-    if (e.target === o && o.id !== 'compModal') closeModal(e.currentTarget.id);
-  });
-});
+// Click-outside-to-close intentionally disabled — use the X button to close modals.
 
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') ['taskModal','projectModal','stepModal','gystModal','settingsModal','captureModal','recurringModal','dayPlanModal'].forEach(closeModal);
